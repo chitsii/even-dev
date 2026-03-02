@@ -311,6 +311,7 @@ Even-dev autoloads Vite plugins from two places:
 `start-even.sh` keeps symlinks in sync automatically:
 - Built-in apps: `apps/<name>/vite-plugin.ts` -> `vite-plugins/<name>-plugin.ts`
 - External cached apps: `.apps-cache/<name>/vite-plugin.ts` -> `vite-plugins/<name>-plugin.ts`
+- If names collide, built-in `apps/<name>` takes precedence and the external one is skipped with a log.
 
 This means app plugins can live with the app code and still be discovered by the root Vite server with no manual registration.
 
@@ -319,7 +320,7 @@ Current plugin files in this repo:
 | Plugin | Purpose |
 |--------|---------|
 | `app-server.ts` | Auto-starts an app's `server/` process (e.g., Tesla's Tessie API proxy) |
-| `browser-launcher.ts` | Opens the browser when the dev server is ready |
+| `browser-launcher.ts` | Exposes helper routes to open editor/external URLs from the host |
 | `chess-plugin.ts` | Serves Stockfish WASM assets for the chess app |
 | `epub-plugin.ts` | Proxies Gutenberg requests for the epub app |
 | `reddit-plugin.ts` | Proxies Reddit API requests to avoid CORS issues |
@@ -369,12 +370,17 @@ vite.config.ts      -> Root Vite config (serves the selected standalone app HTML
 
 ```mermaid
 flowchart TD
-  A["start-even.sh"] --> B["Vite dev server (APP_NAME + APP_PATH)"]
+  A["start-even.sh"] --> S["Sync plugin symlinks"]
+  S --> L1["apps/<name>/vite-plugin.ts -> vite-plugins/<name>-plugin.ts"]
+  S --> L2[".apps-cache/<name>/vite-plugin.ts -> vite-plugins/<name>-plugin.ts"]
+  A --> B["Vite dev server (APP_NAME + APP_PATH)"]
+  B --> P0["Default plugins: app-server + browser-launcher"]
+  B --> P1["Selected plugin: vite-plugins/<selected-app>-plugin.ts"]
+  B --> P2["Selected app plugin: <selected-app-dir>/vite-plugin.ts"]
   B --> C["Selected app's own index.html"]
   C --> D["Selected app's src/main.ts"]
   D --> E["Even Hub SDK / bridge"]
   E <--> F["Even Hub Simulator"]
-  G["vite-plugins/"] --> B
 ```
 
 ---
