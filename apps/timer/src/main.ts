@@ -1,4 +1,5 @@
 import './styles.css'
+import { createAutoConnector } from '../../_shared/autoconnect'
 import { parseMinuteSecondInput } from './duration'
 import { loadPresetSeconds, savePresetSeconds } from './preset-storage'
 import { createTimerController, type TimerPhase } from './timer-controller'
@@ -170,9 +171,8 @@ if (storedPresets && storedPresets.length > 0) {
   renderPresets()
 }
 
-connectBtn.addEventListener('click', () => {
-  void timer.connect()
-})
+const connector = createAutoConnector({ connect: timer.connect })
+connector.bind(connectBtn)
 
 startBtn.addEventListener('click', () => {
   void timer.startSelected()

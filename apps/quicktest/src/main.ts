@@ -1,4 +1,10 @@
 import './styles.css'
+import { createAutoConnector } from '../../_shared/autoconnect'
+import {
+  applyConnectionPillPhase,
+  inferConnectionPillPhaseFromStatus,
+  type ConnectionPillPhase,
+} from '../../_shared/connection-pill'
 import { createQuicktestActions } from './quicktest-app'
 
 const appRoot = document.querySelector<HTMLDivElement>('#app')
@@ -8,10 +14,14 @@ if (!appRoot) {
 }
 
 appRoot.innerHTML = `
-  <section class="card">
-    <h1 class="title">Quicktest</h1>
-    <p class="subtitle">Paste generated UI source and render it on the glasses for fast simulator testing.</p>
-  </section>
+  <header class="hero card">
+    <div>
+      <p class="eyebrow">Even G2</p>
+      <h1 class="page-title">Quicktest</h1>
+      <p class="page-subtitle">Paste generated UI source and render it on the glasses for fast simulator testing.</p>
+    </div>
+    <div id="hero-pill" class="hero-pill is-ready" aria-live="polite">Ready</div>
+  </header>
 
   <section class="card">
     <div class="top-actions">
@@ -35,16 +45,25 @@ appRoot.innerHTML = `
 
 const statusEl = document.querySelector<HTMLParagraphElement>('#status')
 const logEl = document.querySelector<HTMLPreElement>('#event-log')
+const heroPillEl = document.querySelector<HTMLDivElement>('#hero-pill')
 const connectBtn = document.querySelector<HTMLButtonElement>('#connect-btn')
 const renderBtn = document.querySelector<HTMLButtonElement>('#render-btn')
 const actionBtn = document.querySelector<HTMLButtonElement>('#action-btn')
 
-if (!statusEl || !logEl || !connectBtn || !renderBtn || !actionBtn) {
+if (!statusEl || !logEl || !heroPillEl || !connectBtn || !renderBtn || !actionBtn) {
   throw new Error('Missing UI controls')
+}
+
+function setConnectionPhase(phase: ConnectionPillPhase): void {
+  applyConnectionPillPhase(heroPillEl, phase)
 }
 
 function setStatus(text: string): void {
   statusEl.textContent = text
+  const inferred = inferConnectionPillPhaseFromStatus(text)
+  if (inferred) {
+    setConnectionPhase(inferred)
+  }
 }
 
 const actions = createQuicktestActions(setStatus)
@@ -56,10 +75,15 @@ function moveLogCardToEnd(): void {
   }
 }
 
-connectBtn.addEventListener('click', async () => {
-  await actions.connect()
-  moveLogCardToEnd()
+const connector = createAutoConnector({
+  connect: actions.connect,
+  onConnecting: () => {
+    setConnectionPhase('connecting')
+  },
+  onConnected: moveLogCardToEnd,
 })
+setConnectionPhase('idle')
+connector.bind(connectBtn)
 
 renderBtn.addEventListener('click', async () => {
   await actions.render()

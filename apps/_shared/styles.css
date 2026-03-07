@@ -28,6 +28,84 @@ body {
   gap: 12px;
 }
 
+.hero {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  background: var(--color-bg-elevated, var(--app-surface));
+}
+
+.eyebrow {
+  margin: 0 0 6px;
+  color: var(--app-accent);
+  font-size: 0.72rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  font-weight: 700;
+}
+
+.page-title {
+  margin: 0;
+  font-size: 1.55rem;
+  font-weight: 700;
+  line-height: 1.05;
+  color: var(--app-text);
+}
+
+.page-subtitle {
+  margin: 4px 0 0;
+  color: var(--color-tc-2, var(--app-text-muted));
+  font-size: 0.88rem;
+  line-height: 1.35;
+}
+
+.hero-pill {
+  color: #0f172a;
+  background: #ecfeff;
+  border: 1px solid #bae6fd;
+  padding: 6px 10px;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.hero-pill.is-ready {
+  color: #1e3a8a;
+  background: #eff6ff;
+  border-color: #bfdbfe;
+}
+
+.hero-pill.is-connecting {
+  color: #92400e;
+  background: #fffbeb;
+  border-color: #fde68a;
+}
+
+.hero-pill.is-connected {
+  color: #065f46;
+  background: #ecfdf5;
+  border-color: #a7f3d0;
+}
+
+.hero-pill.is-running {
+  color: #5b21b6;
+  background: #f5f3ff;
+  border-color: #ddd6fe;
+}
+
+.hero-pill.is-mock {
+  color: #9a3412;
+  background: #fff7ed;
+  border-color: #fdba74;
+}
+
+.hero-pill.is-error {
+  color: #991b1b;
+  background: #fef2f2;
+  border-color: #fecaca;
+}
+
 .top-actions {
   display: grid;
   grid-template-columns: 1fr;

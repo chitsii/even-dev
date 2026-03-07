@@ -1,4 +1,4 @@
-# Unified Even Hub Simulator v0.0.8
+# Unified Even Hub Simulator v0.1.0
 
 Multi-application development environment for building and testing Even G2 apps with the Even Hub Simulator.
 
@@ -383,16 +383,38 @@ vite.config.ts      -> Root Vite config (serves the selected standalone app HTML
 
 ```mermaid
 flowchart TD
-  A["start-even.sh"] --> S["Sync plugin symlinks"]
-  S --> L1["apps/{app-name}/vite-plugin.ts -> vite-plugins/{app-name}-plugin.ts"]
-  S --> L2[".apps-cache/{app-name}/vite-plugin.ts -> vite-plugins/{app-name}-plugin.ts"]
-  A --> B["Vite dev server (APP_NAME + APP_PATH)"]
-  B --> P0["Default plugins: app-server + browser-launcher"]
-  B --> P1["Selected app plugin (deduped): vite-plugins/{selected-app}-plugin.ts OR {selected-app-dir}/vite-plugin.ts"]
-  B --> C["Selected app's own index.html"]
-  C --> D["Selected app's src/main.ts"]
-  D --> E["Even Hub SDK / bridge"]
-  E <--> F["Even Hub Simulator"]
+  A["start-even.sh"] --> M{"Mode flags"}
+  M -->|"--reset / --update / --devenv-update / --evenhub-cli"| X["Run utility mode and exit"]
+  M -->|"--sim-only"| S1["Launch simulator only with URL (+ optional AUDIO_DEVICE / SIM_OPTS)"]
+  M -->|"default / --web-only"| S2["Start launcher flow"]
+
+  S2 --> D0{"App source"}
+  D0 -->|"APP_PATH set"| D1["Use APP_PATH as selected app dir<br/>derive APP_NAME if missing"]
+  D0 -->|"No APP_PATH"| D2["Discover apps: built-in apps/* + apps.json keys"]
+  D2 --> D3["Select app (CLI arg / APP_NAME / interactive prompt)"]
+  D3 --> D4{"apps.json entry is git URL?"}
+  D4 -->|"yes"| D5["Clone into .apps-cache/{app} if missing"]
+  D4 -->|"no"| D6["Use built-in apps/{app} or local apps.json path"]
+  D5 --> D7["Resolve selected app directory + validate standalone files + install app deps if needed"]
+  D6 --> D7
+  D1 --> D7
+
+  D7 --> P0["Sync plugin symlinks into vite-plugins/ (built-in precedence on name collision)"]
+  P0 --> V0["Start root Vite with VITE_APP_NAME + APP_NAME + APP_PATH"]
+
+  V0 --> V1["vite.config.ts loads app map from apps.json (+ APP_PATH override)"]
+  V1 --> V2["Serve selected app index.html via standaloneAppHtmlPlugin"]
+  V1 --> V3["Load plugins: default (app-server,browser-launcher) + selected app plugin"]
+  V2 --> W["Selected app src/main.*"]
+  V3 --> W
+
+  V0 --> W0["Wait until URL is reachable"]
+  W0 --> W1{"--web-only?"}
+  W1 -->|"yes"| W2["Keep Vite running, skip simulator launch"]
+  W1 -->|"no"| W3["Launch simulator with URL (+ optional AUDIO_DEVICE / SIM_OPTS)"]
+
+  W --> B["Even Hub SDK bridge calls"]
+  B <--> G["Even Hub Simulator"]
 ```
 
 ---

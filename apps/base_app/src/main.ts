@@ -1,4 +1,10 @@
 import './styles.css'
+import { createAutoConnector } from '../../_shared/autoconnect'
+import {
+  applyConnectionPillPhase,
+  inferConnectionPillPhaseFromStatus,
+  type ConnectionPillPhase,
+} from '../../_shared/connection-pill'
 import { createBaseAppActions, type BaseTemplateActions } from './base-template'
 
 const appRoot = document.querySelector<HTMLDivElement>('#app')
@@ -8,10 +14,14 @@ if (!appRoot) {
 }
 
 appRoot.innerHTML = `
-  <section class="card">
-    <h1 class="title">Base Template</h1>
-    <p class="subtitle">Standalone Even G2 template app with browser preview panel and glasses sync.</p>
-  </section>
+  <header class="hero card">
+    <div>
+      <p class="eyebrow">Even G2</p>
+      <h1 class="page-title">Base Template</h1>
+      <p class="page-subtitle">Standalone template app with browser preview panel and glasses sync.</p>
+    </div>
+    <div id="hero-pill" class="hero-pill is-ready" aria-live="polite">Ready</div>
+  </header>
 
   <section class="card">
     <div class="top-actions">
@@ -37,18 +47,27 @@ appRoot.innerHTML = `
 
 const statusEl = document.querySelector<HTMLParagraphElement>('#status')
 const logEl = document.querySelector<HTMLPreElement>('#event-log')
+const heroPillEl = document.querySelector<HTMLDivElement>('#hero-pill')
 const connectBtn = document.querySelector<HTMLButtonElement>('#connect-btn')
 const minusBtn = document.querySelector<HTMLButtonElement>('#minus-btn')
 const plusBtn = document.querySelector<HTMLButtonElement>('#plus-btn')
 const resetBtn = document.querySelector<HTMLButtonElement>('#reset-btn')
 const syncBtn = document.querySelector<HTMLButtonElement>('#sync-btn')
 
-if (!statusEl || !logEl || !connectBtn || !minusBtn || !plusBtn || !resetBtn || !syncBtn) {
+if (!statusEl || !logEl || !heroPillEl || !connectBtn || !minusBtn || !plusBtn || !resetBtn || !syncBtn) {
   throw new Error('Missing controls')
+}
+
+function setConnectionPhase(phase: ConnectionPillPhase): void {
+  applyConnectionPillPhase(heroPillEl, phase)
 }
 
 function setStatus(text: string): void {
   statusEl.textContent = text
+  const inferred = inferConnectionPillPhaseFromStatus(text)
+  if (inferred) {
+    setConnectionPhase(inferred)
+  }
 }
 
 const actions: BaseTemplateActions = createBaseAppActions(setStatus)
@@ -58,9 +77,15 @@ if (logCard) {
   appRoot.appendChild(logCard)
 }
 
-connectBtn.addEventListener('click', () => {
-  void actions.connect()
+setConnectionPhase('idle')
+
+const connector = createAutoConnector({
+  connect: actions.connect,
+  onConnecting: () => {
+    setConnectionPhase('connecting')
+  },
 })
+connector.bind(connectBtn)
 
 minusBtn.addEventListener('click', () => {
   void actions.decrementCounter()

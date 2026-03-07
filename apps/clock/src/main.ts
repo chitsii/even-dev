@@ -1,4 +1,10 @@
 import './styles.css'
+import { createAutoConnector } from '../../_shared/autoconnect'
+import {
+  applyConnectionPillPhase,
+  inferConnectionPillPhaseFromStatus,
+  type ConnectionPillPhase,
+} from '../../_shared/connection-pill'
 import { createClockActions, type ClockActions } from './clock-app'
 
 const appRoot = document.querySelector<HTMLDivElement>('#app')
@@ -8,10 +14,14 @@ if (!appRoot) {
 }
 
 appRoot.innerHTML = `
-  <section class="card">
-    <h1 class="title">Clock</h1>
-    <p class="subtitle">Standalone clock app for Even G2 simulator. Connect and toggle ticking.</p>
-  </section>
+  <header class="hero card">
+    <div>
+      <p class="eyebrow">Even G2</p>
+      <h1 class="page-title">Clock</h1>
+      <p class="page-subtitle">Standalone clock app for Even G2 simulator. Connect and toggle ticking.</p>
+    </div>
+    <div id="hero-pill" class="hero-pill is-ready" aria-live="polite">Ready</div>
+  </header>
 
   <section class="card">
     <div class="top-actions">
@@ -34,23 +44,38 @@ appRoot.innerHTML = `
 `
 
 const statusEl = document.querySelector<HTMLParagraphElement>('#status')
+const heroPillEl = document.querySelector<HTMLDivElement>('#hero-pill')
 const connectBtn = document.querySelector<HTMLButtonElement>('#connect-btn')
 const leftBtn = document.querySelector<HTMLButtonElement>('#left-btn')
 const rightBtn = document.querySelector<HTMLButtonElement>('#right-btn')
 
-if (!statusEl || !connectBtn || !leftBtn || !rightBtn) {
+if (!statusEl || !heroPillEl || !connectBtn || !leftBtn || !rightBtn) {
   throw new Error('Missing UI controls')
+}
+
+function setConnectionPhase(phase: ConnectionPillPhase): void {
+  applyConnectionPillPhase(heroPillEl, phase)
 }
 
 function setStatus(text: string): void {
   statusEl.textContent = text
+  const inferred = inferConnectionPillPhaseFromStatus(text)
+  if (inferred) {
+    setConnectionPhase(inferred)
+  }
 }
 
 const actions: ClockActions = createClockActions(setStatus)
 
-connectBtn.addEventListener('click', () => {
-  void actions.connect()
+setConnectionPhase('idle')
+
+const connector = createAutoConnector({
+  connect: actions.connect,
+  onConnecting: () => {
+    setConnectionPhase('connecting')
+  },
 })
+connector.bind(connectBtn)
 
 leftBtn.addEventListener('click', () => {
   void actions.moveLeft()
