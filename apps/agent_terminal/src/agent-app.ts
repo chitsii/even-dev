@@ -40,6 +40,7 @@ import { wrapGlassText } from './wrap-glass-text'
 type AppMode = 'sessions' | 'reply' | 'implement'
 type VoiceState = 'ready' | 'listening' | 'transcribing'
 type TurnMode = 'reply' | 'implement'
+type SettingsTab = 'general' | 'gateway' | 'runtime'
 type HubEventTypeMap = { CLICK_EVENT: number; SCROLL_TOP_EVENT: number; SCROLL_BOTTOM_EVENT: number; DOUBLE_CLICK_EVENT: number }
 type GlassSessionEntry =
   | { kind: 'session'; label: string; session: SessionSummary }
@@ -61,12 +62,15 @@ type AppState = {
   gatewayTokenInput: string
   gatewayToken: string
   language: LanguageCode
+  autoGlassOffSeconds: number
   sendFailed: boolean
   glassesEnabled: boolean
+  glassAutoPaused: boolean
   glassStatus: string
   debugLog: string[]
   debugLogExpanded: boolean
   settingsOpen: boolean
+  settingsTab: SettingsTab
   sessionsSheetOpen: boolean
 }
 
@@ -80,8 +84,11 @@ const SESSION_POLL_INTERVAL_MS = 5000
 const RUNTIME_POLL_INTERVAL_MS = 1500
 const POST_STARTUP_REBUILD_DELAY_MS = 1500
 const GLASSES_ENABLED_STORAGE_KEY = 'even.agent_terminal.glasses_enabled.v1'
-const GLASS_MESSAGE_CONTAINER_ID = 1
-const GLASS_MESSAGE_CONTAINER_NAME = 'hello-world-text'
+const AUTO_GLASS_OFF_SECONDS_STORAGE_KEY = 'even.agent_terminal.auto_glass_off_seconds.v1'
+const GLASS_MESSAGE_HEADER_ID = 1
+const GLASS_MESSAGE_HEADER_NAME = 'agt-hdr'
+const GLASS_MESSAGE_CONTAINER_ID = 2
+const GLASS_MESSAGE_CONTAINER_NAME = 'agt-body'
 const GLASS_SESSIONS_TITLE_ID = 11
 const GLASS_SESSIONS_TITLE_NAME = 'sess-title'
 const GLASS_SESSIONS_LIST_ID = 12
@@ -106,6 +113,30 @@ function saveGlassesEnabled(enabled: boolean): void {
   } catch {
     // Ignore localStorage failures.
   }
+}
+
+function loadAutoGlassOffSeconds(): number {
+  try {
+    const raw = window.localStorage.getItem(AUTO_GLASS_OFF_SECONDS_STORAGE_KEY)
+    const parsed = Number.parseInt(raw ?? '0', 10)
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : 0
+  } catch {
+    return 0
+  }
+}
+
+function saveAutoGlassOffSeconds(seconds: number): number {
+  const next = Number.isFinite(seconds) && seconds > 0 ? Math.max(0, Math.floor(seconds)) : 0
+  try {
+    if (next > 0) {
+      window.localStorage.setItem(AUTO_GLASS_OFF_SECONDS_STORAGE_KEY, String(next))
+    } else {
+      window.localStorage.removeItem(AUTO_GLASS_OFF_SECONDS_STORAGE_KEY)
+    }
+  } catch {
+    // Ignore localStorage failures.
+  }
+  return next
 }
 
 function createEmptyRuntime(threadId: string): RuntimeSnapshot {
@@ -193,24 +224,29 @@ export class AgentTerminalApp {
     gatewayTokenInput: '',
     gatewayToken: '',
     language: detectInitialLanguage(),
+    autoGlassOffSeconds: loadAutoGlassOffSeconds(),
     sendFailed: false,
     glassesEnabled: loadGlassesEnabled(),
+    glassAutoPaused: false,
     glassStatus: 'Waiting for bridge',
     debugLog: [],
     debugLogExpanded: false,
     settingsOpen: false,
+    settingsTab: 'general',
     sessionsSheetOpen: false,
   }
 
   private bridge: EvenAppBridge | null = null
   private startupRendered = false
   private currentGlassView: 'startup' | 'sessions' | 'message' = 'startup'
+  private lastRenderedGlassHeader = ''
   private lastRenderedGlassText = ''
   private sessionPollHandle: number | null = null
   private runtimePollHandle: number | null = null
   private unsubscribeThreadEvents: (() => void) | null = null
   private pendingTurnMode: TurnMode | null = null
   private pendingResponseWatchdogHandle: number | null = null
+  private autoGlassOffHandle: number | null = null
 
   constructor(root: HTMLDivElement) {
     this.root = root
@@ -295,7 +331,13 @@ export class AgentTerminalApp {
             <button class="icon-btn" id="close-settings-btn" type="button">${this.escapeHtml(t.controls.close)}</button>
           </div>
 
-          <section class="sheet-section">
+          <div class="settings-tabs" role="tablist" aria-label="${this.escapeHtml(t.settings.title)}">
+            <button class="settings-tab${this.state.settingsTab === 'general' ? ' is-active' : ''}" id="settings-tab-general" type="button" role="tab" aria-selected="${this.state.settingsTab === 'general'}">${this.escapeHtml(t.settings.tabs.general)}</button>
+            <button class="settings-tab${this.state.settingsTab === 'gateway' ? ' is-active' : ''}" id="settings-tab-gateway" type="button" role="tab" aria-selected="${this.state.settingsTab === 'gateway'}">${this.escapeHtml(t.settings.tabs.gateway)}</button>
+            <button class="settings-tab${this.state.settingsTab === 'runtime' ? ' is-active' : ''}" id="settings-tab-runtime" type="button" role="tab" aria-selected="${this.state.settingsTab === 'runtime'}">${this.escapeHtml(t.settings.tabs.runtime)}</button>
+          </div>
+
+          <section id="settings-panel-general" class="sheet-section settings-panel${this.state.settingsTab === 'general' ? ' is-active' : ''}">
             <label class="language-control" for="language-select">
               <span>${this.escapeHtml(t.controls.language)}</span>
               <select id="language-select" class="language-select">${languageOptions}</select>
@@ -303,9 +345,14 @@ export class AgentTerminalApp {
             <div class="controls-row">
               <button class="btn is-secondary" id="sync-glasses-btn" type="button">${this.escapeHtml(t.controls.syncGlasses)}</button>
             </div>
+            <div>
+              <label class="draft-label" for="auto-glass-off-input">${this.escapeHtml(t.settings.autoGlassOffSeconds)}</label>
+              <input id="auto-glass-off-input" class="draft-input gateway-input" type="number" min="0" step="1" />
+              <p class="panel-copy">${this.escapeHtml(t.settings.autoGlassOffHint)}</p>
+            </div>
           </section>
 
-          <section class="sheet-section">
+          <section id="settings-panel-gateway" class="sheet-section settings-panel${this.state.settingsTab === 'gateway' ? ' is-active' : ''}">
             <h3>${this.escapeHtml(t.gateway.title)}</h3>
             <p id="gateway-status" class="bridge-status"></p>
             <div class="controls">
@@ -324,8 +371,7 @@ export class AgentTerminalApp {
             </div>
           </section>
 
-          <details class="settings-details">
-            <summary>${this.escapeHtml(`${t.runtime.title} / ${t.debug.title}`)}</summary>
+          <section id="settings-panel-runtime" class="sheet-section settings-panel${this.state.settingsTab === 'runtime' ? ' is-active' : ''}">
             <div class="settings-stack">
               <p class="bridge-status"><strong>${this.escapeHtml(t.runtime.bridge)}:</strong> <span id="bridge-status-text"></span></p>
               <p id="runtime-status" class="phase">${this.escapeHtml(t.runtime.noTurn)}</p>
@@ -335,7 +381,7 @@ export class AgentTerminalApp {
                 <textarea id="debug-log" class="debug-log" readonly spellcheck="false"></textarea>
               </section>
             </div>
-          </details>
+          </section>
         </aside>
       </main>
     `
@@ -373,6 +419,7 @@ export class AgentTerminalApp {
     })
     this.byId<HTMLButtonElement>('open-settings-btn').addEventListener('click', () => {
       this.state.settingsOpen = true
+      this.state.settingsTab = 'general'
       this.render()
     })
     this.byId<HTMLButtonElement>('close-settings-btn').addEventListener('click', () => {
@@ -411,6 +458,23 @@ export class AgentTerminalApp {
       if (nextLanguage === 'ja' || nextLanguage === 'en') {
         void this.setLanguage(nextLanguage)
       }
+    })
+    this.byId<HTMLButtonElement>('settings-tab-general').addEventListener('click', () => {
+      this.state.settingsTab = 'general'
+      this.render()
+    })
+    this.byId<HTMLButtonElement>('settings-tab-gateway').addEventListener('click', () => {
+      this.state.settingsTab = 'gateway'
+      this.render()
+    })
+    this.byId<HTMLButtonElement>('settings-tab-runtime').addEventListener('click', () => {
+      this.state.settingsTab = 'runtime'
+      this.render()
+    })
+    this.byId<HTMLInputElement>('auto-glass-off-input').addEventListener('change', (event) => {
+      const nextValue = Number.parseInt((event.currentTarget as HTMLInputElement).value || '0', 10)
+      this.state.autoGlassOffSeconds = saveAutoGlassOffSeconds(nextValue)
+      this.render()
     })
     const debugLog = this.root.querySelector<HTMLTextAreaElement>('#debug-log')
     if (debugLog) {
@@ -540,7 +604,16 @@ export class AgentTerminalApp {
       this.appendDebugLog(`runtime:poll:${runtime.status}:${runtime.running ? 'running' : 'idle'}:${runtime.lastAgentText.length}`)
       this.state.runtime = runtime
 
+      if (runtime.running && runtime.turnId && !runtime.lastAgentText.trim()) {
+        if (this.autoGlassOffHandle === null) {
+          this.scheduleAutoGlassOff(runtime.turnId)
+        }
+      } else {
+        this.clearAutoGlassOff()
+      }
+
       if (runtime.lastAgentText.trim()) {
+        await this.wakeGlassAfterResponse()
         const existingAssistant = this.getLatestAssistantMessage()
         if (!existingAssistant || existingAssistant.text !== runtime.lastAgentText) {
           const detail = await this.transport.readThread(threadId)
@@ -552,7 +625,9 @@ export class AgentTerminalApp {
 
       if (!runtime.running && runtime.status !== 'running') {
         this.clearPendingResponseWatchdog()
+        this.clearAutoGlassOff()
         this.pendingTurnMode = null
+        await this.wakeGlassAfterResponse()
         await this.refreshSessions()
         const detail = await this.transport.readThread(threadId)
         if (detail) {
@@ -679,7 +754,7 @@ export class AgentTerminalApp {
     if (event.type === 'turn-started') {
       this.state.sendFailed = false
       if (this.state.runtime) {
-        this.state.runtime = { ...this.state.runtime, running: true, turnId: event.turnId, status: 'running', error: null }
+        this.state.runtime = { ...this.state.runtime, running: true, turnId: event.turnId, status: 'running', lastAgentText: '', error: null }
       }
       if (this.pendingTurnMode === 'implement') {
         this.state.mode = 'implement'
@@ -692,6 +767,7 @@ export class AgentTerminalApp {
     if (event.type === 'message-delta') {
       this.state.sendFailed = false
       this.clearPendingResponseWatchdog()
+      this.clearAutoGlassOff()
       this.upsertMessage({
         id: event.itemId,
         role: event.role,
@@ -703,6 +779,7 @@ export class AgentTerminalApp {
         this.state.runtime = { ...this.state.runtime, lastAgentText: event.text }
       }
       this.render()
+      await this.wakeGlassAfterResponse()
       await this.renderGlass()
       return
     }
@@ -711,6 +788,7 @@ export class AgentTerminalApp {
       this.state.sendFailed = false
       if (event.role === 'assistant') {
         this.clearPendingResponseWatchdog()
+        this.clearAutoGlassOff()
       }
       this.upsertMessage({
         id: event.itemId,
@@ -723,6 +801,9 @@ export class AgentTerminalApp {
         this.state.runtime = { ...this.state.runtime, lastAgentText: event.text }
       }
       this.render()
+      if (event.role === 'assistant') {
+        await this.wakeGlassAfterResponse()
+      }
       await this.renderGlass()
       return
     }
@@ -763,6 +844,7 @@ export class AgentTerminalApp {
     if (event.type === 'turn-completed') {
       this.state.sendFailed = false
       this.clearPendingResponseWatchdog()
+      this.clearAutoGlassOff()
       if (this.state.runtime) {
         this.state.runtime = {
           ...this.state.runtime,
@@ -774,6 +856,7 @@ export class AgentTerminalApp {
       }
       const completedMode = this.pendingTurnMode
       this.pendingTurnMode = null
+      await this.wakeGlassAfterResponse()
       await this.refreshSessions()
       if (completedMode === 'implement') {
         this.state.mode = 'reply'
@@ -791,6 +874,7 @@ export class AgentTerminalApp {
 
     if (event.type === 'error') {
       this.clearPendingResponseWatchdog()
+      this.clearAutoGlassOff()
       this.state.sendFailed = false
       if (this.state.runtime) {
         this.state.runtime = { ...this.state.runtime, running: false, status: 'error', error: event.message }
@@ -798,6 +882,7 @@ export class AgentTerminalApp {
       this.pendingTurnMode = null
       this.appendDebugLog(`thread:error:${event.message}`)
       this.render()
+      await this.wakeGlassAfterResponse()
       await this.renderGlass()
     }
   }
@@ -855,7 +940,9 @@ export class AgentTerminalApp {
     this.state.runtime = {
       ...(this.state.runtime ?? createEmptyRuntime(threadId)),
       running: true,
+      turnId: null,
       status: 'running',
+      lastAgentText: '',
       error: null,
     }
     this.state.mode = mode === 'implement' ? 'implement' : 'reply'
@@ -870,16 +957,19 @@ export class AgentTerminalApp {
           running: true,
           turnId: started.started.turnId,
           status: 'running',
+          lastAgentText: '',
           error: null,
           events: [...this.state.runtime.events, 'Waiting for agent response...'].slice(-10),
         }
       }
       this.appendDebugLog(`turn:start:${mode}:${started.started.turnId}`)
       this.schedulePendingResponseWatchdog(threadId, started.started.turnId)
+      this.scheduleAutoGlassOff(started.started.turnId)
       this.render()
       await this.renderGlass()
     } catch (error) {
       this.clearPendingResponseWatchdog()
+      this.clearAutoGlassOff()
       this.pendingTurnMode = null
       this.state.sendFailed = true
       this.state.draftSegments = segments
@@ -923,6 +1013,68 @@ export class AgentTerminalApp {
     }
     window.clearTimeout(this.pendingResponseWatchdogHandle)
     this.pendingResponseWatchdogHandle = null
+  }
+
+  private scheduleAutoGlassOff(turnId: string): void {
+    this.clearAutoGlassOff()
+    if (this.state.autoGlassOffSeconds <= 0) {
+      return
+    }
+    this.autoGlassOffHandle = window.setTimeout(() => {
+      void this.autoPauseGlassWhileWaiting(turnId)
+    }, this.state.autoGlassOffSeconds * 1_000)
+  }
+
+  private clearAutoGlassOff(): void {
+    if (this.autoGlassOffHandle === null) {
+      return
+    }
+    window.clearTimeout(this.autoGlassOffHandle)
+    this.autoGlassOffHandle = null
+  }
+
+  private async autoPauseGlassWhileWaiting(turnId: string): Promise<void> {
+    if (!this.bridge || !this.state.glassesEnabled || this.state.glassAutoPaused) {
+      return
+    }
+    if (!this.state.runtime?.running || this.state.runtime.turnId !== turnId || this.state.runtime.lastAgentText.trim()) {
+      return
+    }
+    const shutDownResult = await this.bridge.shutDownPageContainer(0)
+    if (shutDownResult === true || shutDownResult === 0) {
+      this.state.glassAutoPaused = true
+      this.startupRendered = false
+      this.currentGlassView = 'startup'
+      this.lastRenderedGlassHeader = ''
+      this.lastRenderedGlassText = ''
+      this.state.glassStatus = 'Off while waiting'
+      this.appendDebugLog(`glass:auto-off:ok:${turnId}`)
+      this.render()
+      return
+    }
+    this.appendDebugLog(`glass:auto-off:fail:${String(shutDownResult)}`)
+  }
+
+  private async wakeGlassAfterResponse(): Promise<void> {
+    if (!this.state.glassAutoPaused || !this.bridge || !this.state.glassesEnabled) {
+      return
+    }
+    this.appendDebugLog('glass:auto-off:wake')
+    this.state.glassAutoPaused = false
+    const desired = this.getDesiredGlassPage()
+    const createResult = await this.bridge.createStartUpPageContainer(desired.page)
+    if (createResult === 0 || createResult === true) {
+      this.startupRendered = true
+      this.currentGlassView = desired.view
+      this.lastRenderedGlassHeader = desired.header
+      this.lastRenderedGlassText = desired.text
+      this.state.glassStatus = 'Updated on glasses'
+      this.appendDebugLog(`glass:auto-off:wake:ok:${desired.view}`)
+      this.render()
+      return
+    }
+    this.appendDebugLog(`glass:auto-off:wake:fail:${String(createResult)}`)
+    await this.renderGlass()
   }
 
   private async interruptTurn(): Promise<void> {
@@ -1096,6 +1248,26 @@ export class AgentTerminalApp {
       ?? getTranslations(this.state.language).sessions.noMessagesYet
   }
 
+  private getCompactGlassDraftText(): string {
+    const t = getTranslations(this.state.language)
+    return t.glasses.draftEmpty
+  }
+
+  private getExpandedGlassDraftText(): string | null {
+    const t = getTranslations(this.state.language)
+    const draftText = this.getPendingDraftText().trim()
+    if (draftText) {
+      return trimMultilinePreview(draftText, 700)
+    }
+    if (this.state.voiceState === 'listening') {
+      return t.glasses.draftRecording
+    }
+    if (this.state.voiceState === 'transcribing') {
+      return t.glasses.draftTranscribing
+    }
+    return null
+  }
+
   private getGlassSessionLabel(session: SessionSummary, index: number): string {
     return `${index + 1}. ${trimPreview(session.title, 24)}`
   }
@@ -1151,6 +1323,10 @@ export class AgentTerminalApp {
     return `${sessionLabel} ${statusLabel}`
   }
 
+  private getGlassMessageHeaderText(): string {
+    return this.buildGlassHeaderLine(this.state.currentTitle || 'Session', this.getGlassStatusLabel())
+  }
+
   private getSafeGlassBodyText(): string {
     const t = getTranslations(this.state.language)
     if (!this.state.currentThreadId) {
@@ -1160,9 +1336,17 @@ export class AgentTerminalApp {
       return wrapGlassText(text, GLASS_WRAP_WIDTH).slice(0, GLASS_VISIBLE_LINES).join('\n')
     }
 
-    const header = this.buildGlassHeaderLine(this.state.currentTitle || 'Session', this.getGlassStatusLabel())
+    const expandedDraft = this.getExpandedGlassDraftText()
+    const userLabel = t.glasses.userLabel
+    const agentLabel = t.glasses.agentLabel
+    if (expandedDraft) {
+      const messageText = trimMultilinePreview(this.getPrimaryGlassMessageText(), 420)
+      return `${userLabel}\n${expandedDraft}\n\n${agentLabel}\n${messageText}`
+    }
+
+    const draftText = this.getCompactGlassDraftText()
     const messageText = trimMultilinePreview(this.getPrimaryGlassMessageText(), 800)
-    return `${header}\n${messageText}`
+    return `${userLabel}\n${draftText}\n\n${agentLabel}\n${messageText}`
   }
 
   private buildStartupGlassPage(): CreateStartUpPageContainer {
@@ -1181,19 +1365,31 @@ export class AgentTerminalApp {
     })
   }
 
-  private buildMessageGlassPage(content: string): CreateStartUpPageContainer {
+  private buildMessageGlassPage(header: string, content: string): CreateStartUpPageContainer {
     return new CreateStartUpPageContainer({
-      containerTotalNum: 1,
-      textObject: [new TextContainerProperty({
-        containerID: GLASS_MESSAGE_CONTAINER_ID,
-        containerName: GLASS_MESSAGE_CONTAINER_NAME,
-        content,
-        xPosition: 8,
-        yPosition: 68,
-        width: 560,
-        height: 198,
-        isEventCapture: 1,
-      })],
+      containerTotalNum: 2,
+      textObject: [
+        new TextContainerProperty({
+          containerID: GLASS_MESSAGE_HEADER_ID,
+          containerName: GLASS_MESSAGE_HEADER_NAME,
+          content: header,
+          xPosition: 8,
+          yPosition: 4,
+          width: 560,
+          height: 24,
+          isEventCapture: 0,
+        }),
+        new TextContainerProperty({
+          containerID: GLASS_MESSAGE_CONTAINER_ID,
+          containerName: GLASS_MESSAGE_CONTAINER_NAME,
+          content,
+          xPosition: 8,
+          yPosition: 30,
+          width: 560,
+          height: 236,
+          isEventCapture: 1,
+        }),
+      ],
     })
   }
 
@@ -1232,19 +1428,22 @@ export class AgentTerminalApp {
     })
   }
 
-  private getDesiredGlassPage(): { view: 'sessions' | 'message'; page: CreateStartUpPageContainer; text: string } {
+  private getDesiredGlassPage(): { view: 'sessions' | 'message'; page: CreateStartUpPageContainer; header: string; text: string } {
     if (!this.state.currentThreadId) {
       return {
         view: 'sessions',
         page: this.buildSessionListGlassPage(),
+        header: '',
         text: '',
       }
     }
 
+    const nextHeader = this.getGlassMessageHeaderText()
     const nextText = this.getSafeGlassBodyText()
     return {
       view: 'message',
-      page: this.buildMessageGlassPage(nextText),
+      page: this.buildMessageGlassPage(nextHeader, nextText),
+      header: nextHeader,
       text: nextText,
     }
   }
@@ -1259,6 +1458,7 @@ export class AgentTerminalApp {
     if (rebuildResult === 0 || rebuildResult === true) {
       this.startupRendered = true
       this.currentGlassView = desired.view
+      this.lastRenderedGlassHeader = desired.header
       this.lastRenderedGlassText = desired.text
       this.state.glassStatus = 'Updated on glasses'
       this.appendDebugLog(`glass:startup-recover:ok:${desired.view}`)
@@ -1277,12 +1477,19 @@ export class AgentTerminalApp {
       return
     }
 
+    if (this.state.glassAutoPaused) {
+      this.state.glassStatus = 'Off while waiting'
+      this.render()
+      return
+    }
+
     if (!this.startupRendered) {
       this.appendDebugLog('glass:create:startup')
       const startupResult = await this.bridge.createStartUpPageContainer(this.buildStartupGlassPage())
       if (startupResult === 0 || startupResult === true) {
         this.startupRendered = true
         this.currentGlassView = 'startup'
+        this.lastRenderedGlassHeader = ''
         this.lastRenderedGlassText = 'Hello World'
         this.state.glassStatus = 'Rendered on glasses'
         this.appendDebugLog('glass:create:ok')
@@ -1308,6 +1515,7 @@ export class AgentTerminalApp {
       const sessionResult = await this.bridge.rebuildPageContainer(new RebuildPageContainer(this.buildSessionListGlassPage().toJson()))
       if (sessionResult === 0 || sessionResult === true) {
         this.currentGlassView = 'sessions'
+        this.lastRenderedGlassHeader = ''
         this.lastRenderedGlassText = ''
         this.state.glassStatus = 'Updated on glasses'
         this.appendDebugLog('glass:sessions-view:ok')
@@ -1319,12 +1527,14 @@ export class AgentTerminalApp {
       return
     }
 
+    const nextHeader = this.getGlassMessageHeaderText()
     const nextText = this.getSafeGlassBodyText()
-    const page = this.buildMessageGlassPage(nextText)
+    const page = this.buildMessageGlassPage(nextHeader, nextText)
     if (this.currentGlassView !== 'message') {
       const rebuildResult = await this.bridge.rebuildPageContainer(new RebuildPageContainer(page.toJson()))
       if (rebuildResult === 0 || rebuildResult === true) {
         this.currentGlassView = 'message'
+        this.lastRenderedGlassHeader = nextHeader
         this.lastRenderedGlassText = nextText
         this.state.glassStatus = 'Updated on glasses'
         this.appendDebugLog('glass:layout-expand:ok')
@@ -1336,10 +1546,38 @@ export class AgentTerminalApp {
       return
     }
 
-    if (nextText === this.lastRenderedGlassText) {
+    if (nextHeader === this.lastRenderedGlassHeader && nextText === this.lastRenderedGlassText) {
       this.state.glassStatus = 'Updated on glasses'
       this.render()
       return
+    }
+
+    if (nextHeader !== this.lastRenderedGlassHeader) {
+      const headerLength = Math.max(1, this.lastRenderedGlassHeader.length, nextHeader.length)
+      const headerUpgradeResult = await this.bridge.textContainerUpgrade(new TextContainerUpgrade({
+        containerID: GLASS_MESSAGE_HEADER_ID,
+        containerName: GLASS_MESSAGE_HEADER_NAME,
+        contentOffset: 0,
+        contentLength: headerLength,
+        content: nextHeader,
+      }))
+      if (headerUpgradeResult === 0 || headerUpgradeResult === true) {
+        this.lastRenderedGlassHeader = nextHeader
+        this.appendDebugLog(`glass:header-upgrade:ok:${headerLength}`)
+      } else {
+        const fallbackResult = await this.bridge.rebuildPageContainer(new RebuildPageContainer(page.toJson()))
+        if (fallbackResult === 0 || fallbackResult === true) {
+          this.lastRenderedGlassHeader = nextHeader
+          this.lastRenderedGlassText = nextText
+          this.state.glassStatus = 'Updated on glasses'
+          this.appendDebugLog('glass:rebuild-fallback:ok')
+        } else {
+          this.state.glassStatus = `Update failed (code: ${String(fallbackResult)})`
+          this.appendDebugLog(`glass:rebuild-fallback:fail:${String(fallbackResult)}`)
+        }
+        this.render()
+        return
+      }
     }
 
     const contentLength = Math.max(1, this.lastRenderedGlassText.length, nextText.length)
@@ -1354,18 +1592,17 @@ export class AgentTerminalApp {
       this.lastRenderedGlassText = nextText
       this.state.glassStatus = 'Updated on glasses'
       this.appendDebugLog(`glass:text-upgrade:ok:${contentLength}`)
-      this.render()
-      return
-    }
-
-    const fallbackResult = await this.bridge.rebuildPageContainer(new RebuildPageContainer(page.toJson()))
-    if (fallbackResult === 0 || fallbackResult === true) {
-      this.lastRenderedGlassText = nextText
-      this.state.glassStatus = 'Updated on glasses'
-      this.appendDebugLog('glass:rebuild-fallback:ok')
     } else {
-      this.state.glassStatus = `Update failed (code: ${String(fallbackResult)})`
-      this.appendDebugLog(`glass:rebuild-fallback:fail:${String(fallbackResult)}`)
+      const fallbackResult = await this.bridge.rebuildPageContainer(new RebuildPageContainer(page.toJson()))
+      if (fallbackResult === 0 || fallbackResult === true) {
+        this.lastRenderedGlassHeader = nextHeader
+        this.lastRenderedGlassText = nextText
+        this.state.glassStatus = 'Updated on glasses'
+        this.appendDebugLog('glass:rebuild-fallback:ok')
+      } else {
+        this.state.glassStatus = `Update failed (code: ${String(fallbackResult)})`
+        this.appendDebugLog(`glass:rebuild-fallback:fail:${String(fallbackResult)}`)
+      }
     }
     this.render()
   }
@@ -1374,6 +1611,7 @@ export class AgentTerminalApp {
     const t = getTranslations(this.state.language)
     this.byId<HTMLInputElement>('gateway-input').value = this.state.gatewayInput
     this.byId<HTMLInputElement>('gateway-token-input').value = this.state.gatewayTokenInput
+    this.byId<HTMLInputElement>('auto-glass-off-input').value = this.state.autoGlassOffSeconds > 0 ? String(this.state.autoGlassOffSeconds) : '0'
     this.byId<HTMLSelectElement>('language-select').value = this.state.language
     const gatewayStatus = this.state.gatewayUrl
       ? t.gateway.remoteStatus(this.state.gatewayUrl, Boolean(this.state.gatewayToken))
@@ -1392,6 +1630,12 @@ export class AgentTerminalApp {
     this.byId<HTMLAsideElement>('session-rail').classList.toggle('is-open', this.state.sessionsSheetOpen)
     this.byId<HTMLAsideElement>('settings-sheet').classList.toggle('is-open', this.state.settingsOpen)
     this.byId<HTMLDivElement>('sheet-backdrop').classList.toggle('is-open', this.state.settingsOpen || this.state.sessionsSheetOpen)
+    this.byId<HTMLButtonElement>('settings-tab-general').classList.toggle('is-active', this.state.settingsTab === 'general')
+    this.byId<HTMLButtonElement>('settings-tab-gateway').classList.toggle('is-active', this.state.settingsTab === 'gateway')
+    this.byId<HTMLButtonElement>('settings-tab-runtime').classList.toggle('is-active', this.state.settingsTab === 'runtime')
+    this.byId<HTMLElement>('settings-panel-general').classList.toggle('is-active', this.state.settingsTab === 'general')
+    this.byId<HTMLElement>('settings-panel-gateway').classList.toggle('is-active', this.state.settingsTab === 'gateway')
+    this.byId<HTMLElement>('settings-panel-runtime').classList.toggle('is-active', this.state.settingsTab === 'runtime')
 
     const runtimeStatus = this.state.runtime
       ? [`${t.runtime.status}: ${this.state.runtime.status}`, this.state.runtime.running ? t.runtime.turnActive : t.runtime.idle, this.state.runtime.error ? `${t.runtime.error}: ${this.state.runtime.error}` : ''].filter(Boolean).join(' · ')

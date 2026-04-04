@@ -346,6 +346,37 @@ select {
   gap: 14px;
 }
 
+.settings-tabs {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.settings-tab {
+  min-height: 40px;
+  padding: 8px 10px;
+  border: 1px solid rgba(23, 32, 51, 0.1);
+  border-radius: 12px;
+  background: #f8fafc;
+  color: #475569;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.settings-tab.is-active {
+  background: #dbe4ff;
+  color: #172033;
+  border-color: rgba(66, 111, 255, 0.24);
+}
+
+.settings-panel {
+  display: none;
+}
+
+.settings-panel.is-active {
+  display: grid;
+}
+
 .sheet-section .controls {
   gap: 16px;
 }

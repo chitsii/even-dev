@@ -40,9 +40,16 @@ type TranslationSet = {
   settings: {
     title: string
     copy: string
+    tabs: {
+      general: string
+      gateway: string
+      runtime: string
+    }
     advanced: string
     showDebug: string
     appendDebug: string
+    autoGlassOffSeconds: string
+    autoGlassOffHint: string
   }
   sessions: {
     title: string
@@ -99,6 +106,11 @@ type TranslationSet = {
     tapToResume: string
     noSavedSessions: string
     noMessagesYet: string
+    userLabel: string
+    agentLabel: string
+    draftEmpty: string
+    draftRecording: string
+    draftTranscribing: string
     status: {
       selecting: string
       waiting: string
@@ -158,9 +170,16 @@ const translations: Record<LanguageCode, TranslationSet> = {
     settings: {
       title: 'Settings',
       copy: 'Use the web app mainly for session switching, configuration, and reading the full conversation history.',
+      tabs: {
+        general: 'General',
+        gateway: 'Gateway',
+        runtime: 'Runtime',
+      },
       advanced: 'Advanced settings',
       showDebug: 'Show debug log',
       appendDebug: 'Append new debug lines to the end',
+      autoGlassOffSeconds: 'Auto-hide glasses while waiting (sec)',
+      autoGlassOffHint: '0 disables auto-hide. The display returns when the agent responds.',
     },
     sessions: {
       title: 'Sessions',
@@ -191,8 +210,8 @@ const translations: Record<LanguageCode, TranslationSet> = {
       title: 'Conversation',
       copy: 'The web app keeps the full Codex conversation. The glasses mirror only the latest message and your local draft.',
       empty: 'No conversation yet.',
-      user: 'user',
-      assistant: 'assistant',
+      user: 'USER',
+      assistant: 'AGENT',
       streaming: 'streaming',
     },
     runtime: {
@@ -217,6 +236,11 @@ const translations: Record<LanguageCode, TranslationSet> = {
       tapToResume: 'Tap to resume',
       noSavedSessions: 'No saved sessions',
       noMessagesYet: 'No messages yet. Speak to start.',
+      userLabel: 'USER',
+      agentLabel: 'AGENT',
+      draftEmpty: '-',
+      draftRecording: 'recording...',
+      draftTranscribing: 'transcribing...',
       status: {
         selecting: 'PICK',
         waiting: 'WAIT',
@@ -269,9 +293,16 @@ const translations: Record<LanguageCode, TranslationSet> = {
     settings: {
       title: '設定',
       copy: 'Web 側はセッション切替、設定変更、会話履歴の確認を主用途にします。',
+      tabs: {
+        general: '一般',
+        gateway: 'Gateway',
+        runtime: 'Runtime',
+      },
       advanced: '詳細設定',
       showDebug: 'Debugログを表示',
       appendDebug: '新しいDebugログを末尾に追加',
+      autoGlassOffSeconds: '応答待ちでメガネOFF（秒）',
+      autoGlassOffHint: '0で無効です。返答が来たら自動で再表示します。',
     },
     sessions: {
       title: 'セッション',
@@ -302,8 +333,8 @@ const translations: Record<LanguageCode, TranslationSet> = {
       title: '会話履歴',
       copy: 'Web 側には Codex との会話履歴全体を表示し、メガネ側には最新メッセージだけを表示します。',
       empty: 'まだ会話はありません。',
-      user: 'user',
-      assistant: 'assistant',
+      user: 'USER',
+      assistant: 'AGENT',
       streaming: 'streaming',
     },
     runtime: {
@@ -328,6 +359,11 @@ const translations: Record<LanguageCode, TranslationSet> = {
       tapToResume: 'タップで再開',
       noSavedSessions: '保存済みなし',
       noMessagesYet: 'まだ会話がありません。音声で開始してください。',
+      userLabel: 'USER',
+      agentLabel: 'AGENT',
+      draftEmpty: '-',
+      draftRecording: '録音中...',
+      draftTranscribing: '変換中...',
       status: {
         selecting: '選択中',
         waiting: '入力待',
