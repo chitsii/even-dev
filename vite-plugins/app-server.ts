@@ -15,10 +15,18 @@ export default function appServer(ctx: PluginContext): Plugin | null {
   return {
     name: 'app-server',
     configureServer() {
+      const requestedPort = process.env.AGENT_TERMINAL_SERVER_PORT ?? process.env.APP_SERVER_PORT ?? '8787'
       console.log(`[app-server] Starting ${selectedApp} server from ${serverDir}`)
-      const child = spawn('npx', ['tsx', 'src/index.ts'], {
+      const command = process.platform === 'win32' ? 'cmd.exe' : 'npm'
+      const args = process.platform === 'win32' ? ['/c', 'npm', 'run', 'dev'] : ['run', 'dev']
+      const child = spawn(command, args, {
         cwd: serverDir,
         stdio: 'inherit',
+        shell: false,
+        env: {
+          ...process.env,
+          PORT: requestedPort,
+        },
       })
       child.on('error', (err) => {
         console.error(`[app-server] Failed to start: ${err.message}`)

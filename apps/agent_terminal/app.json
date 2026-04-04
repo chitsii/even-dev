@@ -1,0 +1,19 @@
+{
+  "package_id": "com.chitsii.agentterminal",
+  "edition": "202601",
+  "name": "agent-terminal",
+  "version": "0.1.0",
+  "min_app_version": "2.0.0",
+  "min_sdk_version": "0.0.7",
+  "entrypoint": "index.html",
+  "permissions": [
+    {
+      "name": "g2-microphone",
+      "desc": "Captures voice drafts from the glasses microphone."
+    }
+  ],
+  "supported_languages": [
+    "en",
+    "ja"
+  ]
+}

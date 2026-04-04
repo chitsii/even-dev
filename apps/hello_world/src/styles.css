@@ -1,0 +1,119 @@
+@import "../../_shared/styles.css";
+
+body {
+  max-width: 480px;
+  margin: 0 auto;
+  padding: 16px;
+}
+
+#app {
+  display: grid;
+  gap: 12px;
+}
+
+.hero {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.eyebrow {
+  margin: 0 0 6px;
+  color: #2563eb;
+  font-size: 0.72rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  font-weight: 700;
+}
+
+.page-title {
+  margin: 0;
+  font-size: 1.6rem;
+}
+
+.page-subtitle {
+  margin: 4px 0 0;
+  color: var(--app-text-subtle);
+}
+
+.hero-pill {
+  color: #1e3a8a;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  padding: 6px 10px;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.hero-pill.is-connecting {
+  color: #92400e;
+  background: #fffbeb;
+  border-color: #fde68a;
+}
+
+.hero-pill.is-connected {
+  color: #065f46;
+  background: #ecfdf5;
+  border-color: #a7f3d0;
+}
+
+.hero-pill.is-mock {
+  color: #9a3412;
+  background: #fff7ed;
+  border-color: #fdba74;
+}
+
+.hero-pill.is-error {
+  color: #991b1b;
+  background: #fef2f2;
+  border-color: #fecaca;
+}
+
+.card {
+  background: var(--app-surface);
+  border: 1px solid var(--app-border);
+  border-radius: 14px;
+  padding: 14px;
+}
+
+.btn {
+  appearance: none;
+  border: 1px solid var(--app-border);
+  background: var(--app-surface-muted);
+  color: var(--app-text);
+  border-radius: 12px;
+  padding: 11px 12px;
+  font-size: 0.95rem;
+  cursor: pointer;
+}
+
+.btn:hover {
+  border-color: #bfdbfe;
+  background: #f8fafc;
+}
+
+.message {
+  margin: 0;
+  font-size: 1.2rem;
+  font-weight: 700;
+}
+
+.status {
+  margin: 8px 0 0;
+  color: var(--app-text-subtle);
+}
+
+code {
+  background: #f8fafc;
+  border: 1px solid var(--app-border);
+  border-radius: 6px;
+  padding: 1px 4px;
+}
+
+@media (max-width: 380px) {
+  .hero {
+    flex-direction: column;
+  }
+}
