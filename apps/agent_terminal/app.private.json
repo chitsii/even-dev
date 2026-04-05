@@ -14,9 +14,7 @@
     {
       "name": "network",
       "desc": "Connects to the remote Codex gateway that runs session storage and agent execution.",
-      "whitelist": [
-        "http://100.80.199.121:8791"
-      ]
+      "whitelist": []
     }
   ],
   "supported_languages": [

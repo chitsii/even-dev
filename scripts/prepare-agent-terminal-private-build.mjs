@@ -6,7 +6,9 @@ function readArgs(argv) {
     gatewayUrl: '',
     packageId: '',
     gatewayToken: '',
+    strictNetworkWhitelist: false,
     omitNetworkWhitelist: false,
+    emptyNetworkWhitelist: false,
   }
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -26,8 +28,16 @@ function readArgs(argv) {
       index += 1
       continue
     }
+    if (value === '--strict-network-whitelist') {
+      args.strictNetworkWhitelist = true
+      continue
+    }
     if (value === '--omit-network-whitelist') {
       args.omitNetworkWhitelist = true
+      continue
+    }
+    if (value === '--empty-network-whitelist') {
+      args.emptyNetworkWhitelist = true
     }
   }
 
@@ -59,7 +69,9 @@ const {
   gatewayUrl: rawGatewayUrl,
   packageId,
   gatewayToken,
+  strictNetworkWhitelist,
   omitNetworkWhitelist,
+  emptyNetworkWhitelist,
 } = readArgs(process.argv.slice(2))
 
 if (!packageId.trim()) {
@@ -75,7 +87,9 @@ const networkPermission = {
   desc: 'Connects to the remote Codex gateway that runs session storage and agent execution.',
 }
 
-if (!omitNetworkWhitelist) {
+if (emptyNetworkWhitelist || (!strictNetworkWhitelist && !omitNetworkWhitelist)) {
+  networkPermission.whitelist = []
+} else if (!omitNetworkWhitelist) {
   networkPermission.whitelist = [gatewayOrigin]
 }
 
@@ -100,7 +114,9 @@ console.log(`Wrote ${outputEnvPath}`)
 console.log(
   omitNetworkWhitelist
     ? 'Network whitelist omitted from private manifest.'
-    : `Network whitelist: ${gatewayOrigin}`,
+    : emptyNetworkWhitelist || !strictNetworkWhitelist
+      ? 'Network whitelist explicitly set to [].'
+      : `Network whitelist: ${gatewayOrigin}`,
 )
 console.log('Next steps:')
 console.log('  1. npm --prefix apps/agent_terminal run build:private')
