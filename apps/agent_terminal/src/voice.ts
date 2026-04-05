@@ -5,19 +5,15 @@ export type VoiceSessionStats = {
   byteLength: number
 }
 
-export type VoiceSessionOptions = {
-  transcribe: (stats: VoiceSessionStats) => Promise<string>
-}
-
 export type VoiceSession = {
   start: () => void
   pushChunk: (chunk: VoiceChunk) => void
-  stop: () => Promise<string>
+  stop: () => VoiceSessionStats
   isRecording: () => boolean
   getStats: () => VoiceSessionStats
 }
 
-export function createVoiceSession(options: VoiceSessionOptions): VoiceSession {
+export function createVoiceSession(): VoiceSession {
   let recording = false
   let chunkCount = 0
   let byteLength = 0
@@ -43,16 +39,15 @@ export function createVoiceSession(options: VoiceSessionOptions): VoiceSession {
       byteLength += length
     },
 
-    async stop() {
+    stop() {
       if (!recording) {
-        return ''
+        return { chunkCount: 0, byteLength: 0 }
       }
 
       recording = false
       const stats = { chunkCount, byteLength }
-      const transcript = chunkCount > 0 ? await options.transcribe(stats) : ''
       reset()
-      return transcript
+      return stats
     },
 
     isRecording() {
@@ -63,20 +58,4 @@ export function createVoiceSession(options: VoiceSessionOptions): VoiceSession {
       return { chunkCount, byteLength }
     },
   }
-}
-
-export async function transcribeVoiceStats(stats: VoiceSessionStats): Promise<string> {
-  const globalWindow = window as typeof window & {
-    __AGENT_TERMINAL_TEST_TRANSCRIPT__?: string
-  }
-
-  if (globalWindow.__AGENT_TERMINAL_TEST_TRANSCRIPT__) {
-    return globalWindow.__AGENT_TERMINAL_TEST_TRANSCRIPT__
-  }
-
-  if (stats.chunkCount <= 0 || stats.byteLength <= 0) {
-    return ''
-  }
-
-  return 'Voice note received.'
 }

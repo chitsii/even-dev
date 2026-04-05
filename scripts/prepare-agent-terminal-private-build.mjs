@@ -6,6 +6,7 @@ function readArgs(argv) {
     gatewayUrl: '',
     packageId: '',
     gatewayToken: '',
+    omitNetworkWhitelist: false,
   }
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -23,6 +24,10 @@ function readArgs(argv) {
     if (value === '--gateway-token') {
       args.gatewayToken = argv[index + 1] ?? ''
       index += 1
+      continue
+    }
+    if (value === '--omit-network-whitelist') {
+      args.omitNetworkWhitelist = true
     }
   }
 
@@ -50,7 +55,12 @@ const appDir = resolve(rootDir, 'apps', 'agent_terminal')
 const manifestPath = resolve(appDir, 'app.json')
 const outputManifestPath = resolve(appDir, 'app.private.json')
 const outputEnvPath = resolve(appDir, '.env.private-build.local')
-const { gatewayUrl: rawGatewayUrl, packageId, gatewayToken } = readArgs(process.argv.slice(2))
+const {
+  gatewayUrl: rawGatewayUrl,
+  packageId,
+  gatewayToken,
+  omitNetworkWhitelist,
+} = readArgs(process.argv.slice(2))
 
 if (!packageId.trim()) {
   throw new Error('Missing --package-id')
@@ -63,7 +73,10 @@ const nextPermissions = Array.isArray(manifest.permissions) ? [...manifest.permi
 const networkPermission = {
   name: 'network',
   desc: 'Connects to the remote Codex gateway that runs session storage and agent execution.',
-  whitelist: [gatewayOrigin],
+}
+
+if (!omitNetworkWhitelist) {
+  networkPermission.whitelist = [gatewayOrigin]
 }
 
 const filteredPermissions = nextPermissions.filter((permission) => permission?.name !== 'network')
@@ -84,6 +97,11 @@ writeFileSync(
 
 console.log(`Wrote ${outputManifestPath}`)
 console.log(`Wrote ${outputEnvPath}`)
+console.log(
+  omitNetworkWhitelist
+    ? 'Network whitelist omitted from private manifest.'
+    : `Network whitelist: ${gatewayOrigin}`,
+)
 console.log('Next steps:')
 console.log('  1. npm --prefix apps/agent_terminal run build:private')
 console.log('  2. npx @evenrealities/evenhub-cli pack apps/agent_terminal/app.private.json apps/agent_terminal/dist -o apps/agent_terminal/agent-terminal-private.ehpk')

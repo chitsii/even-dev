@@ -104,7 +104,6 @@ export async function installFakeEvenBridge(page: Page): Promise<void> {
       __EVEN_TEST_BRIDGE__?: {
         getCalls: () => FakeBridgeCall[]
         resetCalls: () => void
-        setTranscript: (text: string) => void
         emitLaunchSource: (source?: string) => void
         emitDeviceStatusChanged: (status: FakeDeviceStatus) => void
         emitEvenHubEvent: (type: string, payload: Record<string, unknown>) => void
@@ -113,11 +112,6 @@ export async function installFakeEvenBridge(page: Page): Promise<void> {
       getCalls: () => state.calls.slice(),
       resetCalls: () => {
         state.calls.length = 0
-      },
-      setTranscript: (text: string) => {
-        ;(window as typeof window & {
-          __AGENT_TERMINAL_TEST_TRANSCRIPT__?: string
-        }).__AGENT_TERMINAL_TEST_TRANSCRIPT__ = text
       },
       emitLaunchSource: (source = 'appMenu') => {
         window._listenEvenAppMessage?.({
@@ -162,26 +156,30 @@ export async function emitListEvent(page: Page, payload: Record<string, unknown>
   }, payload)
 }
 
+export async function emitTextEvent(page: Page, payload: Record<string, unknown>): Promise<void> {
+  await page.evaluate((eventPayload) => {
+    window.__EVEN_TEST_BRIDGE__?.emitEvenHubEvent('textEvent', eventPayload)
+  }, payload)
+}
+
 export async function emitAudioEvent(page: Page, audioPcm: number[]): Promise<void> {
   await page.evaluate((payload) => {
     window.__EVEN_TEST_BRIDGE__?.emitEvenHubEvent('audioEvent', { audioPcm: payload })
   }, audioPcm)
 }
 
-export async function setMockTranscript(page: Page, text: string): Promise<void> {
-  await page.evaluate((transcript) => {
-    window.__EVEN_TEST_BRIDGE__?.setTranscript(transcript)
-  }, text)
+export async function emitSystemEvent(page: Page, payload: Record<string, unknown>): Promise<void> {
+  await page.evaluate((eventPayload) => {
+    window.__EVEN_TEST_BRIDGE__?.emitEvenHubEvent('sysEvent', eventPayload)
+  }, payload)
 }
 
 declare global {
   interface Window {
     _listenEvenAppMessage?: (message: unknown) => void
-    __AGENT_TERMINAL_TEST_TRANSCRIPT__?: string
     __EVEN_TEST_BRIDGE__?: {
       getCalls: () => FakeBridgeCall[]
       resetCalls: () => void
-      setTranscript: (text: string) => void
       emitLaunchSource: (source?: string) => void
       emitDeviceStatusChanged: (status: FakeDeviceStatus) => void
       emitEvenHubEvent: (type: string, payload: Record<string, unknown>) => void

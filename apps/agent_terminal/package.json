@@ -10,9 +10,14 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@evenrealities/even_hub_sdk": "latest"
+    "@evenrealities/even_hub_sdk": "latest",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0"
   },
   "devDependencies": {
+    "@types/react": "^19.2.2",
+    "@types/react-dom": "^19.2.2",
+    "@vitejs/plugin-react": "^5.1.0",
     "typescript": "^5.9.3",
     "vite": "^7.3.1"
   }

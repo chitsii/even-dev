@@ -43,3 +43,45 @@ export function normalizeEventType(rawEventType: unknown, eventTypes: {
 
   return undefined
 }
+
+function parseJsonPayload(payload: unknown): Record<string, unknown> | undefined {
+  if (!payload) {
+    return undefined
+  }
+  if (typeof payload === 'string') {
+    try {
+      const parsed = JSON.parse(payload) as unknown
+      return parsed && typeof parsed === 'object' ? parsed as Record<string, unknown> : undefined
+    } catch {
+      return undefined
+    }
+  }
+  return typeof payload === 'object' ? payload as Record<string, unknown> : undefined
+}
+
+function readIndexFromPayload(payload: unknown): number | undefined {
+  const parsed = parseJsonPayload(payload)
+  if (!parsed) {
+    return undefined
+  }
+
+  const direct = parsed.currentSelectItemIndex ?? parsed.index ?? parsed.selectedIndex ?? parsed.currentIndex
+  if (typeof direct === 'number') {
+    return direct
+  }
+
+  if (parsed.listEvent) {
+    return readIndexFromPayload(parsed.listEvent)
+  }
+
+  return undefined
+}
+
+export function getEventSelectionIndex(event: any): number | undefined {
+  if (typeof event?.listEvent?.currentSelectItemIndex === 'number') {
+    return event.listEvent.currentSelectItemIndex
+  }
+
+  return readIndexFromPayload(event?.listEvent?.jsonData)
+    ?? readIndexFromPayload(event?.jsonData)
+}

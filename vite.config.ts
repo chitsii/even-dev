@@ -3,6 +3,7 @@ import { existsSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { defineConfig } from 'vite'
 import type { Plugin } from 'vite'
+import react from '@vitejs/plugin-react'
 import { loadAppPlugins } from './vite-plugins'
 
 // ---------------------------------------------------------------------------
@@ -109,6 +110,7 @@ export default defineConfig(async () => {
 
   return {
     plugins: [
+      react({ fastRefresh: false }),
       standaloneAppHtmlPlugin(),
       ...(await loadAppPlugins({
         externalApps: standaloneApps,

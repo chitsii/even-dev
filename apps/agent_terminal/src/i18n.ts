@@ -18,11 +18,9 @@ type TranslationSet = {
     close: string
     syncGlasses: string
     saveGateway: string
-    useEmbeddedGateway: string
+    checkGateway: string
     refreshSessions: string
     newSession: string
-    holdToTalk: string
-    stopRecording: string
     sendReply: string
     interrupt: string
   }
@@ -32,10 +30,18 @@ type TranslationSet = {
     statusLabel: string
     remoteLabel: string
     tokenLabel: string
+    probeLabel: string
     remotePlaceholder: string
     tokenPlaceholder: string
-    embeddedStatus: string
+    localDevStatus: string
     remoteStatus: (url: string, tokenProtected: boolean) => string
+    probeIdle: string
+    probeChecking: string
+    probeSuccess: (backend: string, workspacePath: string) => string
+    probeUnauthorized: string
+    probeUnreachable: string
+    probeInvalid: string
+    probeUnknown: string
   }
   settings: {
     title: string
@@ -71,10 +77,10 @@ type TranslationSet = {
     label: string
     draftLabel: string
     draftPlaceholder: string
+    entryMode: string
     ready: string
     listening: (chunks: number) => string
     transcribing: string
-    noteReceived: string
   }
   conversation: {
     title: string
@@ -87,6 +93,9 @@ type TranslationSet = {
   runtime: {
     title: string
     bridge: string
+    backend: string
+    activeThread: string
+    workspace: string
     noTurn: string
     noEvents: string
     status: string
@@ -103,6 +112,8 @@ type TranslationSet = {
   glasses: {
     sessionsTitle: string
     createNewSession: string
+    standbyTitle: string
+    standbyBody: string
     tapToResume: string
     noSavedSessions: string
     noMessagesYet: string
@@ -111,6 +122,10 @@ type TranslationSet = {
     draftEmpty: string
     draftRecording: string
     draftTranscribing: string
+    actionSend: string
+    reviewContinue: string
+    reviewRerecord: string
+    reviewCancel: string
     status: {
       selecting: string
       waiting: string
@@ -148,24 +163,30 @@ const translations: Record<LanguageCode, TranslationSet> = {
       close: 'Close',
       syncGlasses: 'Sync Glasses',
       saveGateway: 'Save Gateway',
-      useEmbeddedGateway: 'Use Embedded Gateway',
+      checkGateway: 'Check',
       refreshSessions: 'Refresh Sessions',
       newSession: 'New Session',
-      holdToTalk: 'Hold To Talk',
-      stopRecording: 'Stop Recording',
       sendReply: 'Send',
       interrupt: 'Stop',
     },
     gateway: {
       title: 'Gateway',
-      copy: 'Use the embedded gateway in local development. Private builds can point to a remote gateway over Tailscale.',
-      statusLabel: 'Gateway',
+      copy: 'Use a remote Codex gateway over Tailscale. Recording sends PCM to the gateway, and OpenAI STT returns draft text before you send it.',
+      statusLabel: 'Saved URL',
       remoteLabel: 'Remote gateway URL',
       tokenLabel: 'Gateway token',
-      remotePlaceholder: 'http://100.80.199.121:8787/api',
+      probeLabel: 'Connectivity',
+      remotePlaceholder: 'http://100.80.199.121:8791/api',
       tokenPlaceholder: 'Optional',
-      embeddedStatus: 'Embedded dev server / local mock fallback',
-      remoteStatus: (url, tokenProtected) => `Remote gateway: ${url} (${tokenProtected ? 'token protected' : 'no token'})`,
+      localDevStatus: 'Local dev proxy (browser / simulator only)',
+      remoteStatus: (url, tokenProtected) => `${url} (${tokenProtected ? 'token protected' : 'no token'})`,
+      probeIdle: 'Not checked yet.',
+      probeChecking: 'Checking...',
+      probeSuccess: (backend, workspacePath) => `Connected: ${backend}${workspacePath ? ` · ${workspacePath}` : ''}`,
+      probeUnauthorized: 'Authentication failed.',
+      probeUnreachable: 'Gateway unreachable.',
+      probeInvalid: 'Enter a gateway URL first.',
+      probeUnknown: 'Gateway check failed.',
     },
     settings: {
       title: 'Settings',
@@ -197,14 +218,14 @@ const translations: Record<LanguageCode, TranslationSet> = {
     },
     voice: {
       title: 'Voice Reply',
-      copy: 'The glasses show the latest message and your current local draft. Tap the message area on the glasses to start or stop recording.',
+      copy: 'Hold to record, review the transcript locally, then send it to the active session. You can also type directly in the web composer.',
       label: 'Voice',
       draftLabel: 'Local reply draft',
       draftPlaceholder: 'Voice reply segments stay local until you send them.',
+      entryMode: 'Hold to record or type here',
       ready: 'Ready',
       listening: (chunks) => `Listening (${chunks} chunk${chunks === 1 ? '' : 's'})`,
       transcribing: 'Transcribing',
-      noteReceived: 'Voice note received.',
     },
     conversation: {
       title: 'Conversation',
@@ -217,6 +238,9 @@ const translations: Record<LanguageCode, TranslationSet> = {
     runtime: {
       title: 'Runtime',
       bridge: 'Bridge',
+      backend: 'Backend',
+      activeThread: 'Active thread',
+      workspace: 'Workspace',
       noTurn: 'No active turn.',
       noEvents: 'No runtime events yet.',
       status: 'Status',
@@ -233,6 +257,8 @@ const translations: Record<LanguageCode, TranslationSet> = {
     glasses: {
       sessionsTitle: 'Sessions',
       createNewSession: 'Create New Session',
+      standbyTitle: 'Agent',
+      standbyBody: 'Double tap to open sessions.',
       tapToResume: 'Tap to resume',
       noSavedSessions: 'No saved sessions',
       noMessagesYet: 'No messages yet. Speak to start.',
@@ -241,6 +267,10 @@ const translations: Record<LanguageCode, TranslationSet> = {
       draftEmpty: '-',
       draftRecording: 'recording...',
       draftTranscribing: 'transcribing...',
+      actionSend: 'Send',
+      reviewContinue: 'Continue',
+      reviewRerecord: 'Re-record',
+      reviewCancel: 'Cancel',
       status: {
         selecting: 'PICK',
         waiting: 'WAIT',
@@ -266,29 +296,35 @@ const translations: Record<LanguageCode, TranslationSet> = {
     },
     controls: {
       language: '言語',
-      openSessions: 'セッション',
+      openSessions: 'セッション一覧',
       openSettings: '設定',
       close: '閉じる',
       syncGlasses: 'メガネ同期',
       saveGateway: 'Gateway保存',
-      useEmbeddedGateway: '組み込みGatewayを使う',
+      checkGateway: '疎通確認',
       refreshSessions: 'セッション更新',
       newSession: '新規セッション',
-      holdToTalk: '録音',
-      stopRecording: '停止',
       sendReply: '送信',
       interrupt: '停止',
     },
     gateway: {
       title: 'Gateway',
-      copy: 'ローカル開発では組み込み Gateway を使います。private build では Tailscale 越しの remote gateway も指定できます。',
-      statusLabel: 'Gateway',
+      copy: 'Tailscale 越しの remote Codex gateway を使います。録音した PCM は gateway に送られ、OpenAI STT が下書きを返します。',
+      statusLabel: '保存済みURL',
       remoteLabel: 'Remote gateway URL',
       tokenLabel: 'Gateway token',
-      remotePlaceholder: 'http://100.80.199.121:8787/api',
+      probeLabel: '疎通確認',
+      remotePlaceholder: 'http://100.80.199.121:8791/api',
       tokenPlaceholder: '任意',
-      embeddedStatus: '組み込み dev server / ローカル mock fallback',
-      remoteStatus: (url, tokenProtected) => `Remote gateway: ${url} (${tokenProtected ? 'token あり' : 'token なし'})`,
+      localDevStatus: 'ローカル開発用 proxy（browser / simulator 専用）',
+      remoteStatus: (url, tokenProtected) => `${url} (${tokenProtected ? 'token あり' : 'token なし'})`,
+      probeIdle: '未確認',
+      probeChecking: '確認中...',
+      probeSuccess: (backend, workspacePath) => `接続OK: ${backend}${workspacePath ? ` · ${workspacePath}` : ''}`,
+      probeUnauthorized: '認証に失敗しました。',
+      probeUnreachable: 'Gateway に到達できません。',
+      probeInvalid: '先に Gateway URL を入力してください。',
+      probeUnknown: '疎通確認に失敗しました。',
     },
     settings: {
       title: '設定',
@@ -320,14 +356,14 @@ const translations: Record<LanguageCode, TranslationSet> = {
     },
     voice: {
       title: '音声返信',
-      copy: 'メガネには最新メッセージとローカル下書きだけを表示します。メッセージ領域をタップすると録音を開始・停止します。',
+      copy: '録音して文字起こし結果を確認し、必要なら修正してから送信します。Web では直接入力もできます。',
       label: '音声',
       draftLabel: 'ローカル返信下書き',
       draftPlaceholder: '音声で作った下書きは送信するまでローカルにだけ保持されます。',
+      entryMode: '録音または直接入力',
       ready: '待機中',
       listening: (chunks) => `録音中 (${chunks})`,
       transcribing: '文字起こし中',
-      noteReceived: '音声メモを受信しました。',
     },
     conversation: {
       title: '会話履歴',
@@ -340,6 +376,9 @@ const translations: Record<LanguageCode, TranslationSet> = {
     runtime: {
       title: 'Runtime',
       bridge: 'Bridge',
+      backend: 'Backend',
+      activeThread: 'Active thread',
+      workspace: 'Workspace',
       noTurn: '進行中の turn はありません。',
       noEvents: 'runtime event はまだありません。',
       status: '状態',
@@ -356,6 +395,8 @@ const translations: Record<LanguageCode, TranslationSet> = {
     glasses: {
       sessionsTitle: 'セッション',
       createNewSession: '新規セッション作成',
+      standbyTitle: '待機',
+      standbyBody: 'ダブルタップでセッション一覧を開きます。',
       tapToResume: 'タップで再開',
       noSavedSessions: '保存済みなし',
       noMessagesYet: 'まだ会話がありません。音声で開始してください。',
@@ -364,6 +405,10 @@ const translations: Record<LanguageCode, TranslationSet> = {
       draftEmpty: '-',
       draftRecording: '録音中...',
       draftTranscribing: '変換中...',
+      actionSend: '送信',
+      reviewContinue: '続ける',
+      reviewRerecord: '再録',
+      reviewCancel: '取消',
       status: {
         selecting: '選択中',
         waiting: '入力待',

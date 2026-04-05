@@ -33,6 +33,33 @@ export type RuntimeSnapshot = {
   error: string | null
 }
 
+export type BackendStatus = {
+  backend: 'mock' | 'codex'
+  workspacePath: string
+  activeThreadId?: string | null
+  sttAvailable?: boolean
+}
+
+export type SttSessionStart = {
+  sessionId: string
+}
+
+export type SttFinishResult = {
+  transcript: string
+  chunkCount: number
+  byteLength: number
+}
+
+export class TransportRequestError extends Error {
+  readonly status: number | null
+
+  constructor(message: string, status: number | null = null) {
+    super(message)
+    this.name = 'TransportRequestError'
+    this.status = status
+  }
+}
+
 export type ThreadEvent =
   | {
       threadId: string
@@ -92,17 +119,25 @@ async function requestJson<T>(path: string, init?: RequestInit, timeoutMs = 2_00
   }, timeoutMs)
 
   try {
-    const response = await fetch(path, {
-      ...init,
-      signal: controller.signal,
-      headers: {
-        'content-type': 'application/json',
-        ...(init?.headers ?? {}),
-      },
-    })
+    let response: Response
+    try {
+      response = await fetch(path, {
+        ...init,
+        signal: controller.signal,
+        headers: {
+          'content-type': 'application/json',
+          ...(init?.headers ?? {}),
+        },
+      })
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') {
+        throw new TransportRequestError('Request timed out')
+      }
+      throw new TransportRequestError(error instanceof Error ? error.message : 'Network request failed')
+    }
 
     if (!response.ok) {
-      throw new Error(`Request failed: ${response.status}`)
+      throw new TransportRequestError(`Request failed: ${response.status}`, response.status)
     }
 
     return response.json() as Promise<T>
@@ -168,6 +203,13 @@ export function createAgentTerminalTransport(options: TransportOptions = {}) {
       }
     },
 
+    async activateThread(threadId: string): Promise<{ threadId: string }> {
+      return requestJson<{ threadId: string }>(withBasePath(`/threads/${threadId}/activate`), {
+        method: 'POST',
+        headers: withHeaders(),
+      }, requestTimeoutMs)
+    },
+
     async startTurn(threadId: string, text: string, mode: 'reply' | 'implement') {
       return requestJson<{ started: { threadId: string; turnId: string } }>(withBasePath(`/threads/${threadId}/turns`), {
         method: 'POST',
@@ -188,6 +230,42 @@ export function createAgentTerminalTransport(options: TransportOptions = {}) {
         headers: withHeaders(),
       }, requestTimeoutMs)
       return payload.runtime
+    },
+
+    async getBackendStatus(): Promise<BackendStatus> {
+      return requestJson<BackendStatus>(withBasePath('/status'), {
+        headers: withHeaders(),
+      }, requestTimeoutMs)
+    },
+
+    async startSttSession(language?: string): Promise<SttSessionStart> {
+      return requestJson<SttSessionStart>(withBasePath('/stt/sessions'), {
+        method: 'POST',
+        body: JSON.stringify(language ? { language } : {}),
+        headers: withHeaders(),
+      }, requestTimeoutMs)
+    },
+
+    async appendSttChunk(sessionId: string, audioPcm: Uint8Array): Promise<{ ok: boolean; chunkCount: number; byteLength: number }> {
+      return requestJson<{ ok: boolean; chunkCount: number; byteLength: number }>(withBasePath(`/stt/sessions/${sessionId}/chunks`), {
+        method: 'POST',
+        body: JSON.stringify({ audioPcm: Array.from(audioPcm) }),
+        headers: withHeaders(),
+      }, requestTimeoutMs)
+    },
+
+    async finishSttSession(sessionId: string): Promise<SttFinishResult> {
+      return requestJson<SttFinishResult>(withBasePath(`/stt/sessions/${sessionId}/finish`), {
+        method: 'POST',
+        headers: withHeaders(),
+      }, requestTimeoutMs)
+    },
+
+    async probeGateway(baseUrl: string, gatewayToken: string): Promise<BackendStatus> {
+      const normalizedBaseUrl = baseUrl.trim().replace(/\/+$/, '')
+      return requestJson<BackendStatus>(`${normalizedBaseUrl}/status`, {
+        headers: gatewayToken.trim() ? { 'x-agent-terminal-key': gatewayToken.trim() } : undefined,
+      }, requestTimeoutMs)
     },
 
     subscribeToThreadEvents(threadId: string, onEvent: (event: ThreadEvent) => void): () => void {

@@ -1,6 +1,7 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { createAgentTerminalHandler } from './api'
 import { createMockThreadBackend } from './mock-thread-backend'
+import { createSttSessionService } from './stt-service'
 
 describe('createAgentTerminalHandler', () => {
   it('lists, creates, and resumes threads', async () => {
@@ -132,5 +133,130 @@ describe('createAgentTerminalHandler', () => {
 
     expect(response.status).toBe(201)
     expect(entries).toEqual(['17:30:00 glass:create:ok'])
+  })
+
+  it('exposes backend status metadata', async () => {
+    const backend = createMockThreadBackend()
+    const handler = createAgentTerminalHandler({
+      backend,
+      backendInfo: {
+        mode: 'codex',
+        workspacePath: 'C:/repo/even-dev',
+      },
+    })
+
+    const response = await handler(new Request('http://local/api/status'))
+    const payload = await response.json() as { backend: string; workspacePath: string }
+
+    expect(response.status).toBe(200)
+    expect(payload).toEqual({
+      backend: 'codex',
+      workspacePath: 'C:/repo/even-dev',
+      sttAvailable: false,
+    })
+  })
+
+  it('streams audio chunks through the STT session endpoints', async () => {
+    const backend = createMockThreadBackend()
+    const stt = {
+      startSession: vi.fn(() => ({ sessionId: 'stt-1' })),
+      appendChunk: vi.fn(async () => ({ chunkCount: 1, byteLength: 4 })),
+      finishSession: vi.fn(async () => ({
+        transcript: 'draft from audio',
+        chunkCount: 1,
+        byteLength: 4,
+      })),
+    }
+    const handler = createAgentTerminalHandler({ backend, stt })
+
+    const startResponse = await handler(new Request('http://local/api/stt/sessions', {
+      method: 'POST',
+    }))
+    expect(startResponse.status).toBe(201)
+    await expect(startResponse.json()).resolves.toEqual({ sessionId: 'stt-1' })
+
+    const chunkResponse = await handler(new Request('http://local/api/stt/sessions/stt-1/chunks', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ audioPcm: [1, 2, 3, 4] }),
+    }))
+    expect(chunkResponse.status).toBe(202)
+    await expect(chunkResponse.json()).resolves.toEqual({
+      ok: true,
+      chunkCount: 1,
+      byteLength: 4,
+    })
+
+    const finishResponse = await handler(new Request('http://local/api/stt/sessions/stt-1/finish', {
+      method: 'POST',
+    }))
+    expect(finishResponse.status).toBe(200)
+    await expect(finishResponse.json()).resolves.toEqual({
+      transcript: 'draft from audio',
+      chunkCount: 1,
+      byteLength: 4,
+    })
+  })
+
+  it('accepts binary audio chunks for the STT session endpoint', async () => {
+    const backend = createMockThreadBackend()
+    const stt = {
+      startSession: vi.fn(() => ({ sessionId: 'stt-2' })),
+      appendChunk: vi.fn(async () => ({ chunkCount: 1, byteLength: 4 })),
+      finishSession: vi.fn(async () => ({
+        transcript: 'draft from binary audio',
+        chunkCount: 1,
+        byteLength: 4,
+      })),
+    }
+    const handler = createAgentTerminalHandler({ backend, stt })
+
+    await handler(new Request('http://local/api/stt/sessions', {
+      method: 'POST',
+    }))
+
+    const chunkResponse = await handler(new Request('http://local/api/stt/sessions/stt-2/chunks', {
+      method: 'POST',
+      headers: { 'content-type': 'application/octet-stream' },
+      body: new Uint8Array([1, 2, 3, 4]),
+      duplex: 'half',
+    }))
+
+    expect(chunkResponse.status).toBe(202)
+    await expect(chunkResponse.json()).resolves.toEqual({
+      ok: true,
+      chunkCount: 1,
+      byteLength: 4,
+    })
+  })
+
+  it('passes the requested STT language through the session lifecycle', async () => {
+    const backend = createMockThreadBackend()
+    const transcribeAudio = vi.fn(async ({ language }: { language?: string }) => language ?? '')
+    const handler = createAgentTerminalHandler({
+      backend,
+      stt: createSttSessionService({ transcribeAudio }),
+    })
+
+    const startResponse = await handler(new Request('http://local/api/stt/sessions', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ language: 'ja' }),
+    }))
+    const { sessionId } = await startResponse.json() as { sessionId: string }
+
+    await handler(new Request(`http://local/api/stt/sessions/${sessionId}/chunks`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/octet-stream' },
+      body: new Uint8Array([1, 2, 3, 4]),
+      duplex: 'half',
+    }))
+
+    const finishResponse = await handler(new Request(`http://local/api/stt/sessions/${sessionId}/finish`, {
+      method: 'POST',
+    }))
+
+    expect(transcribeAudio).toHaveBeenCalledWith(expect.objectContaining({ language: 'ja' }))
+    await expect(finishResponse.json()).resolves.toMatchObject({ transcript: 'ja' })
   })
 })

@@ -2,26 +2,30 @@ import { createServer } from 'node:http'
 import { Readable } from 'node:stream'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { createOpenAiSttTranscriber, createSttSessionService } from './stt-service.ts'
-import { createAgentTerminalHandler, isAuthorizedRequest, matchesThreadEventsPath } from './api.ts'
+import { createCodexGatewayHandler, isAuthorizedRequest, matchesThreadEventsPath } from './api.ts'
+import { createActiveThreadStore } from './active-thread-store.ts'
 import { createCodexThreadBackend } from './codex-thread-backend.ts'
 import { createFileDebugLogger } from './debug-log.ts'
-import { createMockThreadBackend } from './mock-thread-backend.ts'
+import { loadDotEnvFile } from './env.ts'
 import type { ThreadEvent } from './thread-backend.ts'
 
-const port = Number(process.env.PORT ?? 8787)
-const host = process.env.HOST ?? process.env.AGENT_TERMINAL_SERVER_HOST ?? '127.0.0.1'
-const dataDir = process.env.AGENT_TERMINAL_DATA_DIR ?? join(tmpdir(), 'even-dev', 'agent_terminal')
-const debugLogger = createFileDebugLogger(join(dataDir, 'debug.log'))
-const workspacePath = process.env.AGENT_TERMINAL_WORKSPACE_PATH ?? resolve(process.cwd(), '..', '..', '..')
-const openAiApiKey = process.env.OPENAI_API_KEY?.trim() || process.env.AGENT_TERMINAL_OPENAI_API_KEY?.trim() || ''
+const serviceRoot = resolve(fileURLToPath(new URL('..', import.meta.url)))
+loadDotEnvFile(join(serviceRoot, '.env'))
+loadDotEnvFile(join(serviceRoot, '.env.local'))
+
+const port = Number(process.env.PORT ?? 8788)
+const host = process.env.HOST ?? '127.0.0.1'
+const dataDir = process.env.CODEX_GATEWAY_DATA_DIR ?? join(tmpdir(), 'codex-gateway')
+const workspacePath = process.env.CODEX_GATEWAY_WORKSPACE_PATH ?? resolve(process.cwd(), '..', '..')
+const apiKey = process.env.CODEX_GATEWAY_API_KEY
+const voiceEntryToken = process.env.CODEX_GATEWAY_VOICE_ENTRY_TOKEN ?? apiKey
+const openAiApiKey = process.env.OPENAI_API_KEY?.trim() || ''
 const openAiSttModel = process.env.OPENAI_STT_MODEL?.trim() || 'gpt-4o-mini-transcribe'
-const mockSttTranscript = process.env.AGENT_TERMINAL_MOCK_STT_TRANSCRIPT?.trim() || 'Mock transcript from audio.'
-const backend = process.env.AGENT_TERMINAL_USE_MOCK_AGENT === '1'
-  ? createMockThreadBackend()
-  : createCodexThreadBackend({
-      workspacePath,
-    })
+const debugLogger = createFileDebugLogger(join(dataDir, 'debug.log'))
+const backend = createCodexThreadBackend({ workspacePath })
+const activeThreadStore = createActiveThreadStore(join(dataDir, 'active-thread.json'))
 const stt = openAiApiKey
   ? createSttSessionService({
       transcribeAudio: createOpenAiSttTranscriber({
@@ -29,21 +33,17 @@ const stt = openAiApiKey
         model: openAiSttModel,
       }),
     })
-  : process.env.AGENT_TERMINAL_USE_MOCK_AGENT === '1'
-    ? createSttSessionService({
-        transcribeAudio: async () => mockSttTranscript,
-      })
   : undefined
 
-const handler = createAgentTerminalHandler({
+const handler = createCodexGatewayHandler({
   backend,
   stt,
-  apiKey: process.env.AGENT_TERMINAL_API_KEY,
+  getActiveThreadId: () => activeThreadStore.getThreadId(),
+  setActiveThreadId: (threadId) => activeThreadStore.setThreadId(threadId),
+  apiKey,
+  voiceEntryToken,
   debugLogger,
-  backendInfo: {
-    mode: process.env.AGENT_TERMINAL_USE_MOCK_AGENT === '1' ? 'mock' : 'codex',
-    workspacePath,
-  },
+  workspacePath,
 })
 
 function writeSse(res: import('node:http').ServerResponse, event: ThreadEvent): void {
@@ -55,7 +55,7 @@ const server = createServer(async (req, res) => {
     const url = new URL(req.url ?? '/', `http://${req.headers.host ?? `127.0.0.1:${port}`}`)
 
     if (req.method === 'GET' && matchesThreadEventsPath(url.pathname)) {
-      if (!isAuthorizedRequest(url, new Headers(req.headers as HeadersInit), process.env.AGENT_TERMINAL_API_KEY)) {
+      if (!isAuthorizedRequest(url, new Headers(req.headers as HeadersInit), apiKey)) {
         res.statusCode = 401
         res.setHeader('content-type', 'application/json; charset=utf-8')
         res.end(JSON.stringify({ error: 'Unauthorized' }))
@@ -133,9 +133,13 @@ const server = createServer(async (req, res) => {
 })
 
 server.listen(port, host, () => {
-  console.log(`[agent_terminal/server] Listening on http://${host}:${port}`)
-  console.log(`[agent_terminal/server] Data directory: ${dataDir}`)
-  console.log(`[agent_terminal/server] OpenAI STT: ${stt ? (openAiApiKey ? openAiSttModel : 'mock') : 'disabled'}`)
+  console.log(`[codex-gateway] Listening on http://${host}:${port}`)
+  console.log(`[codex-gateway] Workspace: ${workspacePath}`)
+  console.log(`[codex-gateway] Data directory: ${dataDir}`)
+  console.log(`[codex-gateway] OpenAI STT: ${stt ? openAiSttModel : 'disabled'}`)
+  if (voiceEntryToken) {
+    console.log(`[codex-gateway] Voice Entry endpoint: http://${host}:${port}/v1/chat/completions`)
+  }
 })
 
 process.on('exit', () => {

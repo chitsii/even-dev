@@ -163,12 +163,16 @@ select {
   margin-bottom: 4px;
   line-height: 1.35;
   font-size: 14px;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .session-row-preview {
   color: #64748b;
   line-height: 1.35;
   font-size: 12px;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .conversation-shell {
@@ -393,6 +397,14 @@ select {
   line-height: 1.45;
 }
 
+.gateway-probe.is-success {
+  color: #0f766e;
+}
+
+.gateway-probe.is-error {
+  color: #b91c1c;
+}
+
 .draft-label {
   display: block;
   margin-bottom: 8px;
@@ -501,10 +513,12 @@ select {
     top: 14px;
     left: 14px;
     bottom: 14px;
-    width: min(320px, calc(100vw - 28px));
+    width: min(78vw, 420px);
+    max-width: calc(100vw - 28px);
     z-index: 20;
     transform: translateX(calc(-100% - 24px));
     transition: transform 0.2s ease;
+    overflow: auto;
   }
 
   .session-rail.is-open {

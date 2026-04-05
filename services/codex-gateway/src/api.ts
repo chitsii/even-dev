@@ -1,5 +1,11 @@
 import type { ThreadBackend, TurnMode } from './thread-backend.ts'
 import type { SttSessionService } from './stt-service.ts'
+import {
+  createVoiceEntryChatCompletion,
+  extractLatestUserText,
+  isAuthorizedVoiceEntryRequest,
+  runVoiceEntryCommand,
+} from './voice-entry.ts'
 
 function json(data: unknown, init?: ResponseInit): Response {
   const headers = new Headers(init?.headers)
@@ -34,25 +40,25 @@ async function readAudioChunk(request: Request): Promise<Uint8Array> {
 }
 
 function getThreadId(pathname: string): string | null {
-  const match = pathname.match(/^\/(?:(?:api|__agent_terminal_api)\/)?threads\/([^/]+)/)
+  const match = pathname.match(/^\/(?:(?:api)\/)?threads\/([^/]+)/)
   return match?.[1] ?? null
 }
 
 function getSttSessionId(pathname: string): string | null {
-  const match = pathname.match(/^\/(?:(?:api|__agent_terminal_api)\/)?stt\/sessions\/([^/]+)/)
+  const match = pathname.match(/^\/(?:(?:api)\/)?stt\/sessions\/([^/]+)/)
   return match?.[1] ?? null
 }
 
 function isThreadsRoot(pathname: string): boolean {
-  return pathname === '/threads' || pathname === '/api/threads' || pathname === '/__agent_terminal_api/threads'
+  return pathname === '/threads' || pathname === '/api/threads'
 }
 
 function isSttSessionsRoot(pathname: string): boolean {
-  return pathname === '/stt/sessions' || pathname === '/api/stt/sessions' || pathname === '/__agent_terminal_api/stt/sessions'
+  return pathname === '/stt/sessions' || pathname === '/api/stt/sessions'
 }
 
 function isThreadEventsPath(pathname: string): boolean {
-  return /^\/(?:(?:api|__agent_terminal_api)\/)?threads\/[^/]+\/events$/.test(pathname)
+  return /^\/(?:(?:api)\/)?threads\/[^/]+\/events$/.test(pathname)
 }
 
 export function matchesThreadEventsPath(pathname: string): boolean {
@@ -71,21 +77,35 @@ export function isAuthorizedRequest(url: URL, headers: Headers, apiKey?: string)
   return provided === expectedApiKey
 }
 
-export function createAgentTerminalHandler(deps: {
+export function createCodexGatewayHandler(deps: {
   backend: ThreadBackend
-  stt?: SttSessionService
+  getActiveThreadId: () => string | null
+  setActiveThreadId: (threadId: string | null) => void
   apiKey?: string
+  voiceEntryToken?: string
+  stt?: SttSessionService
   debugLogger?: (entry: string) => void
-  backendInfo?: {
-    mode: 'mock' | 'codex'
-    workspacePath: string
-  }
+  workspacePath: string
 }) {
   return async function handle(request: Request): Promise<Response> {
     const url = new URL(request.url)
 
     if (request.method === 'OPTIONS') {
       return json({ ok: true })
+    }
+
+    if (request.method === 'POST' && url.pathname === '/v1/chat/completions') {
+      if (!isAuthorizedVoiceEntryRequest(request.headers, deps.voiceEntryToken)) {
+        return json({ error: 'Unauthorized' }, { status: 401 })
+      }
+      const body = await readJson(request)
+      const userText = extractLatestUserText(body)
+      if (!userText) {
+        return json({ error: 'Missing user message' }, { status: 400 })
+      }
+      const result = await runVoiceEntryCommand(deps.backend, deps.getActiveThreadId(), userText)
+      deps.debugLogger?.(`voice-entry:${result.detail?.threadId ?? 'none'}:${result.turnStarted ? 'turn' : 'noop'}`)
+      return json(createVoiceEntryChatCompletion(body, result))
     }
 
     if (!isAuthorizedRequest(url, request.headers, deps.apiKey)) {
@@ -99,15 +119,18 @@ export function createAgentTerminalHandler(deps: {
       })
     }
 
-    if (request.method === 'GET' && (
-      url.pathname === '/status'
-      || url.pathname === '/api/status'
-      || url.pathname === '/__agent_terminal_api/status'
-    )) {
+    if (request.method === 'GET' && (url.pathname === '/status' || url.pathname === '/api/status')) {
       return json({
-        backend: deps.backendInfo?.mode ?? 'mock',
-        workspacePath: deps.backendInfo?.workspacePath ?? '',
+        backend: 'codex',
+        workspacePath: deps.workspacePath,
+        activeThreadId: deps.getActiveThreadId(),
         sttAvailable: Boolean(deps.stt),
+      })
+    }
+
+    if (request.method === 'GET' && (url.pathname === '/active-thread' || url.pathname === '/api/active-thread')) {
+      return json({
+        threadId: deps.getActiveThreadId(),
       })
     }
 
@@ -123,16 +146,12 @@ export function createAgentTerminalHandler(deps: {
     if (request.method === 'POST' && isThreadsRoot(url.pathname)) {
       const body = await readJson(request)
       const title = typeof body.title === 'string' ? body.title.trim() : ''
-      return json({
-        detail: await deps.backend.createThread(title || undefined),
-      }, { status: 201 })
+      const detail = await deps.backend.createThread(title || undefined)
+      deps.setActiveThreadId(detail.threadId)
+      return json({ detail }, { status: 201 })
     }
 
-    if (request.method === 'POST' && (
-      url.pathname === '/debug-log'
-      || url.pathname === '/api/debug-log'
-      || url.pathname === '/__agent_terminal_api/debug-log'
-    )) {
+    if (request.method === 'POST' && (url.pathname === '/debug-log' || url.pathname === '/api/debug-log')) {
       const body = await readJson(request)
       const entry = typeof body.entry === 'string' ? body.entry.trim() : ''
       if (!entry) {
@@ -142,6 +161,7 @@ export function createAgentTerminalHandler(deps: {
       return json({ ok: true }, { status: 201 })
     }
 
+    const threadId = getThreadId(url.pathname)
     const sttSessionId = getSttSessionId(url.pathname)
     if (sttSessionId) {
       if (!deps.stt) {
@@ -159,22 +179,35 @@ export function createAgentTerminalHandler(deps: {
         deps.debugLogger?.(`stt:finish:${sttSessionId}:${result.chunkCount}:${result.byteLength}`)
         return json(result)
       }
+
+      return notFound()
     }
 
-    const threadId = getThreadId(url.pathname)
     if (!threadId) {
       return notFound()
     }
 
     if (request.method === 'POST' && url.pathname.endsWith('/resume')) {
-      return json({
-        detail: await deps.backend.resumeThread(threadId),
-      })
+      const detail = await deps.backend.resumeThread(threadId)
+      if (detail) {
+        deps.setActiveThreadId(detail.threadId)
+      }
+      return json({ detail })
     }
 
-    if (request.method === 'GET' && url.pathname.match(/^\/(?:(?:api|__agent_terminal_api)\/)?threads\/[^/]+$/)) {
+    if (request.method === 'GET' && url.pathname.match(/^\/(?:(?:api)\/)?threads\/[^/]+$/)) {
+      const detail = await deps.backend.readThread(threadId)
+      return json({ detail })
+    }
+
+    if (request.method === 'POST' && url.pathname.endsWith('/activate')) {
+      const detail = await deps.backend.readThread(threadId) ?? await deps.backend.resumeThread(threadId)
+      if (!detail) {
+        return json({ error: 'Thread not found' }, { status: 404 })
+      }
+      deps.setActiveThreadId(detail.threadId)
       return json({
-        detail: await deps.backend.readThread(threadId),
+        threadId: detail.threadId,
       })
     }
 

@@ -59,3 +59,43 @@ Discord と公式 docs から読み取れる現状の想定導線:
 3. `AGENT_TERMINAL_API_KEY` を設定する
 4. Codex と SQLite を server 側に置く
 5. private build の `network` whitelist にその origin を入れる
+
+## Tailscale と一緒に使う場合
+
+前提:
+
+- PC と iPhone が同じ tailnet に参加している
+- iPhone 側の Tailscale が接続済み
+- gateway server は PC 側で `0.0.0.0` bind か Tailscale IP bind
+
+実運用イメージ:
+
+1. PC 側で agent server を起動する
+2. iPhone / Even app から Tailscale IP 経由でその `/api` を叩く
+3. Web 設定画面の `Gateway` タブで URL と token を保存する
+
+例:
+
+- gateway URL: `http://100.80.199.121:8791/api`
+- token: `devdev`
+
+PC 側 server 起動例:
+
+```bash
+cd /c/Users/tishi/programming/eveng2/even-dev/services/codex-gateway
+npm run dev
+```
+
+Web 側設定:
+
+1. `設定`
+2. `Gateway`
+3. `Remote gateway URL` に `http://100.80.199.121:8791/api`
+4. `Gateway token` に `devdev`
+5. `Gateway保存`
+
+補足:
+
+- UI から local gateway に戻すボタンは置いていません
+- URL を未設定のまま使うのは、browser / simulator のローカル開発時だけです
+- 実機では Tailscale URL を入れて使う前提です
